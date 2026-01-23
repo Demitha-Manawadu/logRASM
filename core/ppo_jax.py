@@ -127,7 +127,7 @@ class Actor(nn.Module):
 
     action_shape_prod: int
     neurons_per_layer: list
-    activation_func: list
+    activation_func: list 
 
     @nn.compact
     def __call__(self, x: Array):
