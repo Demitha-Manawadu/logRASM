@@ -1,0 +1,3042 @@
+Available
+CAV
+Evaluation
+Artifact
+Reusable
+CAV
+Evaluation
+Artifact
+Policy Verification in Stochastic Dynamical
+Systems Using Logarithmic Neural Certificates
+Thom Badings1,2⋆
+ , Wietze Koops 2,3,4⋆
+ ,
+Sebastian Junges2
+ , and Nils Jansen 2,5
+1 University of Oxford, Oxford, United Kingdom
+thom.badings@cs.ox.ac.uk
+2 Radboud University, Nijmegen, the Netherlands
+3 Lund University, Lund, Sweden
+4 University of Copenhagen, Copenhagen, Denmark
+5 Ruhr-University Bochum, Bochum, Germany
+Abstract. We consider the verification of neural network policies for
+discrete-time stochastic systems with respect to reach-avoid specifications.
+We use a learner-verifier procedure that learns a certificate for the specifi-
+cation, represented as a neural network. Verifying that this neural network
+certificate is a so-called reach-avoid supermartingale (RASM) proves the
+satisfaction of a reach-avoid specification. Existing approaches for such a
+verification task rely on computed Lipschitz constants of neural networks.
+These approaches struggle with large Lipschitz constants, especially for
+reach-avoid specifications with high threshold probabilities. We present
+two key contributions to obtain smaller Lipschitz constants than existing
+approaches. First, we introduce logarithmic RASMs (logRASMs), which
+take exponentially smaller values than RASMs and hence have lower theo-
+retical Lipschitz constants. Second, we present a fast method to compute
+tighter upper bounds on Lipschitz constants based on weighted norms.
+Our empirical evaluation shows we can consistently verify the satisfaction
+of reach-avoid specifications with probabilities as high as 99 .9999%.
+1 Introduction
+Feed-forward neural networks are widely used in reinforcement learning (RL)
+to represent policies for autonomous control systems operating in continuous
+and nonlinear environments [40,63,75]. To deploy such policies in safety-critical
+domains, it is crucial to provide guarantees about their (closed-loop) behavior [13].
+The development of techniques that provide such guarantees is an ongoing research
+effort [36]. In this paper, we study (nonlinear) stochastic dynamical systems,
+which are ubiquitous in control theory [20,58] and AI [19,27] for modeling control
+tasks in uncertain environments. The operational model of such a discrete-time
+stochastic system (DTSS) is a Markov decision process (MDP) with a continuous
+state and action space, and with the transition function defined by stochastic
+difference equations. We aim to prove that a reach-avoid specification is satisfied,
+⋆ Equal contribution.
+arXiv:2406.00826v4  [cs.LG]  18 Jul 2025
+2 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+Stochastic
+dyn. system
+Neural
+net. policy
+Reach-avoid
+specification|=
+StateAction
+0
+˜x1 ˜x2
+˜x3
+K
+Violations
+x
+E[V (xt+1)] − V (xt)
+Discrete cell
+Fig. 1: We verify that a neural net-
+work policy deployed on a DTSS sat-
+isfies a reach-avoid specification.
+Fig. 2: The verifier computes the expected
+decrease of a candidate RASM V on dis-
+crete states ˜xi and uses a Lipschitz con-
+stant K to generalize to all other states.
+i.e., that the probability of reaching a set of goal states without visiting unsafe
+states is above some threshold [82]. More precisely, we study the following
+verification problem (see Fig. 1): Given a DTSS and a neural network policy for
+this DTSS, check whether the policy satisfies a given reach-avoid specification.
+Certificate functions. We follow the common paradigm of verification by finding
+a certificate. A certificate is a function satisfying conditions such that its exis-
+tence implies satisfaction of a specification. Classical certificates include ranking
+functions [45] (to prove termination in program loops [24,71]) and Lyapunov func-
+tions (to prove stability in non-stochastic systems [58]). In this paper, we build
+upon ranking supermartingales [28,44], specifically reach-avoid supermartingale
+(RASM) certificates for DTSSes [95]. A RASM is a function from the system’s
+states to real values which (among other conditions) must decrease in expec-
+tation at every step under the DTSS’s dynamics. Hence, a RASM induces a
+supermartingale [72, 89]. The existence of a RASM proves the satisfaction of
+a reach-avoid specification. Standard approaches to finding certificates mostly
+use optimization over restrictive templates, e.g., low-degree polynomials [77, 81].
+Thus, we follow the recent trend of representing certificates as neural networks
+instead [2,29,76,90,94] (collectively called neural certificates [37]).
+Learner-verifier framework. An effective method to learn a RASM is to use
+a counterexample-guided framework as in Fig. 3. Such a framework iterates
+between (1) a learner that trains a neural network as a candidate certificate
+and (2) a verifier that either proves the validity of the candidate or returns
+counterexamples that disprove that the candidate is a RASM [3,30]. We initialize
+the learner with a policy (without guarantees) learned from any common RL
+algorithm. Then, the learner trains the neural network certificate and updates
+the (initial) policy based on counterexamples that it receives from the verifier.
+Challenges in verifying RASMs. Recall that the verifier in Fig. 3 must prove
+that the candidate RASM decreases in expectation with the DTSS’s dynamics.
+This expected decrease condition is shown by the blue line in Fig. 2, so we must
+show that this line is strictly negative in every state x. Because the state space
+is continuous, existing RASM verifiers check conditions on a discretization of the
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 3
+Learner
+Update πand V
+Verifier
+Check RASM conditions
+Neural network
+policy π
+Reach-avoid
+specification
+✓
+RASM V
+(reach-avoid spec. proven)
+Candidate RASM V ,
+policy π
+/times
+Counterexamples
+Local discretization
+refinement
+Fig. 3: Overview of the learner-verifier framework for finding a RASM.
+state space (points ˜x1, ˜x2, ˜x3 in Fig. 2) and use Lipschitz continuity of the policy
+and the RASM (with Lipschitz constant K in Fig. 2) to generalize to the entire
+state space.6 However, this approach has two main limitations. First, specifications
+with very high threshold probabilities necessarily require RASMs with infeasibly
+large Lipschitz constants. Second, computing the (smallest) Lipschitz constant of
+a neural network exactly is intractable [86], so existing RASM verifiers use loose
+upper bounds instead. Consequently, applying the framework to safety-critical
+domains, where high levels of assurance are needed, remains elusive.
+Our approach to improving RASM verifiers. In this paper, we propose novel
+techniques that address these two limitations in verifying RASMs represented as
+neural networks. Our method can verify reach-avoid specifications with threshold
+probabilities as high as 99 .9999%, which is enabled by two key novel aspects:
+1. Logarithmic RASMs. Instead of training the neural network to satisfy the
+RASM conditions from [95], we consider the logarithm of these conditions .
+Like a (standard) RASM, the resulting certificate, which we call a logarithmic
+RASM (or logRASM), proves the satisfaction of a reach-avoid specification.
+A logRASM takes exponentially smaller values than a RASM, leading to a
+lower theoretical Lipschitz constant of the certificate.
+2. Tighter bounds on Lipschitz constants. We use weighted norm systems
+instead of standard norms to compute Lipschitz constants for neural networks.
+In combination with averaged activation operators [35], our method leads to
+significantly tighter global bounds on Lipschitz constants for neural networks.
+These better Lipschitz constants improve the performance of RASM verifiers
+without sacrificing the efficiency of the verifier.
+We embed our techniques in the learner-verifier framework depicted in Fig. 3. We
+further accelerate the framework using a local refinement scheme for the verifier
+that only refines the discretization at points where necessary, similar to ideas
+from [14,65]. Specifically, when a discretized point violates the RASM conditions,
+we can determine if the violation could be mitigated by further refining that
+point. Following this intuition, we locally refine the discretization while avoiding
+unnecessary computations in cases where refinement cannot fix violations.
+6 For other neural certificates, different verifiers have been used, e.g., using satisfiability
+modulo theories (SMT) solving, which we discuss in the related work (Sect. 8).
+4 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+Contributions. In summary, we present novel techniques for verifying neural
+network policies in stochastic dynamical systems with reach-avoid specifications.
+Our approach combines the use of logarithmic RASMs as certificates with tighter
+upper bounds on Lipschitz constants of neural networks. Our experiments confirm
+that we can verify specifications with probability bounds orders of magnitude
+higher than the state-of-the-art.
+2 Problem Statement
+We study discrete-time stochastic (nonlinear dynamical) systems, which can be
+seen as a concise representation of MDPs with continuous state and action spaces:
+Definition 1 (DTSS). A discrete-time stochastic system (DTSS) is a tuple
+S := ⟨X , X0, U , N , µ, f⟩, where X ⊆ Rd is the (continuous) state space, X0 ⊆ X
+is a set of initial states, U ⊆ Rm is the (continuous) action space, N ⊆ Rp is
+the noise space, µ: BN → [0, 1] is a probability measure on the Borel σ-algebra
+BN on N , and f : X × U × N → X is the transition function.
+The stochasticity of a DTSS S is modeled by the probability space ( N , BN , µ)
+(see, e.g., [41] for details). The state xt of a DTSS is defined recursively over
+discrete steps t ∈ N0 as
+xt+1 = f(xt, ut, ωt), x0 ∈ X 0, (1)
+where ωt ∼ µ. An execution of the DTSS S is an infinite sequence (xt, ut, ωt)t∈N0
+of state-action-disturbance triples that satisfy Eq. (1) for all t ∈ N0.
+Policy. A (memoryless deterministic) policy π : X → U chooses actions in a DTSS
+such that ut := π(xt) in Eq. (1). Fixing a policy π and an initial state x0 ∈ X 0
+defines an induced Markov process in the probability space of all executions [20,73].
+We denote the probability measure on this probability space by Pπ
+x0.
+Reach-avoid specification. For an induced Markov process, we want to evaluate
+the probability of reaching a target set XT ⊆ X before reaching an unsafe set
+XU ⊆ X . Formally, this reach-avoid probability Prπ
+x0(XT , XU) is defined as
+Prπ
+x0(XT , XU) := Pπ
+x0
+
+∃t ∈ N0 : xt ∈ X T ∧ (∀t′ ∈ {0, . . . , t} : xt′ /∈ X U)
+	
+. (2)
+Intuitively, Prπ
+x0(XT , XU) is the probability that, from initial state x0, the system
+eventually reaches XT while never reaching XU before.
+Definition 2 (Reach-avoid specification). Given a DTSS as in Def. 1 and
+a policy π, a reach-avoid specification is a triple ⟨XT , XU , ρ⟩ and is satisfied if
+Prπ
+x0(XT , XU) ≥ ρ for all x0 ∈ X 0.
+Formal problem. The following verification problem is central to this paper:
+Problem 1 (Policy verification). Given a DTSS S with a policy π, verify
+whether the reach-avoid specification ⟨XT , XU , ρ⟩ is satisfied.
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 5
+In this paper, we make the following standard assumptions [7,18,58]. These
+assumptions ensure that the reach-avoid probability is well-defined [20].
+Assumption 1. For a DTSS S = ⟨X , X0, U , N , µ, f⟩, we assume that:
+1. The transition function f and the policy π are Lipschitz continuous;
+2. The sets X , X0, XT , XU and U are Borel measurable;
+3. The sets X and N are compact (i.e., closed and bounded).
+3 Verifying Reach-Avoid Specifications Using RASMs
+In this section, we fix a DTSS ⟨X , X0, U , N , µ, f⟩ as in Def. 1, a policy π, and
+a reach-avoid specification ⟨XT , XU , ρ⟩. We recap the certificate, called a reach-
+avoid supermartingale (RASM), and the verification procedure, proposed by [95]
+to solve Problem 1. This section deviates from [95] in one aspect (see Remark 1).
+Definition 3 (RASM). A continuous function V : X → R≥0 is a reach-avoid
+supermartingale (RASM) (for a fixed reach-avoid specification) if:
+1. Initial condition: V (x) ≤ 1 for all x ∈ X 0;
+2. Safety condition: V (x) ≥ 1
+1−ρ for all x ∈ X U;
+3. Expected decrease condition: There exists ϵ > 0 such that for all x ∈ X \ X T
+with V (x) < 1
+1−ρ, we have Eω∼µ [V (f(x, π(x), ω))] ≤ V (x) − ϵ.
+A RASM V associates each state x ∈ X with a non-negative value and decreases
+in expectation at every step in the dynamics. To reach an unsafe state from
+any initial state, the value V (xt) needs to increase from at most 1 to at least
+1
+1−ρ along the execution. Since V decreases in expectation with every step, this
+happens with probability at most 1 − ρ. This intuitively shows why the existence
+of a RASM implies that the reach-avoid specification in Problem 1 is satisfied:
+Theorem 1 ([95], proof in App. B.2). If there exists a RASM for the
+reach-avoid specification, then this specification is satisfied.
+3.1 Verifying RASMs by Discretization
+Since the state space X is continuous, it is not feasible to check the conditions
+from Def. 3 on individual points x ∈ X . Instead, we check slightly stronger
+versions of the conditions from Def. 3 on a discretization of the state space into
+rectangular cells. Concretely, for a given mesh size τ > 0, define cellτ
+∞(x) = {x′ :
+∥x − x′∥∞ ≤ τ /d}, where ∥ · ∥∞ denotes the ∞-norm and d is the dimension of
+the state space X ⊆ Rd.7 We allow different mesh sizes for cells around different
+centers x. A discretization of X must cover X as follows:
+Definition 4 (Discretization of X). A discretization of X is a finite set of
+points eX together with a mesh size τ˜x for each ˜x ∈ eX such that for every x ∈ X
+there exists an ˜x ∈ eX such that x ∈ cellτ˜x
+∞(˜x).
+7 We divide by d in the definition of cellτ
+∞(x) to ensure that ∥x − x′∥1 ≤ τ for all
+x′ ∈ cellτ
+∞(x), which we need later in Def. 5.
+6 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+Lipschitz constants. To generalize results on a discretization to the full state
+space, we use Lipschitz continuity (using 1-norms). We say that Lg is a Lipschitz
+constant of a function g if ∥g(x) − g(x′)∥1 ≤ Lg∥x − x′∥1 for all x, x′ in the
+domain of g. All Lipschitz constants in this paper will be with respect to the
+1-norm. Throughout the paper, we write Lf and Lπ for the Lipschitz constants
+of the dynamics f and the policy π, respectively.
+Conditions on the discretization. We define a stronger version of the RASM
+conditions, such that the satisfaction of these stronger conditions on each point
+˜x ∈ eX from a discretization of X implies the satisfaction of the conditions in
+Def. 3. Toward these conditions, we define for any ˜x ∈ eX
+Vmin(˜x) = min
+x∈cell
+τ˜x∞ (˜x)
+V (x) and Vmax(˜x) = max
+x∈cell
+τ˜x∞ (˜x)
+V (x)
+as the min/max of V within each cellτ˜x
+∞(˜x). Computing Vmin(˜x) and Vmax(˜x)
+analytically is in general not possible, but using interval bound propagation
+(IBP) [50] we can compute bounds VLB(˜x) and VUB(˜x) satisfying
+VLB(˜x) ≤ Vmin(˜x) ≤ V (˜x) ≤ Vmax(˜x) ≤ VUB(˜x)
+for all ˜x ∈ eX . These bounds obtained from IBP are generally tighter than those
+computed using Lipschitz constants.
+Discrete RASM. Concretely, the satisfaction of the conditions in Def. 3 is then
+implied by the following conditions on the discretization.
+Definition 5 (Discrete RASM). Let V : X → R≥0 be Lipschitz continuous
+with Lipschitz constant LV . Let8 K = LV Lf (Lπ + 1) and let eX be a discretization
+with a mesh size τ˜x for each ˜x ∈ eX . Then, V is a discrete RASM for eX if:
+1. Initial condition: VUB(˜x) ≤ 1 for all ˜x ∈ eX with cellτ˜x
+∞(˜x) ∩ X0 ̸= ∅.
+2. Safety condition: VLB(˜x) ≥ 1
+1−ρ for all ˜x ∈ eX with cellτ˜x
+∞(˜x) ∩ XU ̸= ∅.
+3. Expected decrease condition:
+Eω∼µ [V (f(˜x, π(˜x), ω))] < V LB(˜x) − τ˜xK (3)
+for all ˜x ∈ eX with cellτ˜x
+∞(˜x) ∩ (X \ X T ) ̸= ∅ and VLB(˜x) < 1
+1−ρ.
+Remark 1. We deviate slightly from [95], which instead uses V (˜x) − τ(K + LV )
+on the right-hand side of Eq. (3). Since IBP usually gives tighter bounds than
+Lipschitz continuity, our version of Eq. (3) is (slightly) easier to satisfy.
+Verifying the conditions in Def. 5 is sufficient to show that V is a RASM:
+Lemma 1 (proof in App. B.3). Every discrete RASM is also a RASM.
+8 In our implementation, we use a slightly improved definition of K; see App. A.1.
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 7
+Computing the expected value in Eq. (3) exactly is generally infeasible.
+Instead, we bound this expectation from above by discretizing the noise space
+N into a collection of cells C (which is possible since N is compact), such that
+Eω∼µ [V (f(˜x, π(˜x), ω))] ≤P
+C∈C P(ω ∈ C) supω∈C [V (f(˜x, π(˜x), ω))] , where we
+again use IBP to upper bound sup ω∈C [V (f(˜x, π(˜x), ω))] for each cell C ∈ C.
+Shape of a discrete RASM. Finally, we make some remarks about the typical
+shape of a discrete RASM V , especially in the context where we try to minimize its
+Lipschitz constant K (to speed up verification). Since V is Lipschitz continuous, it
+is differentiable almost everywhere. Recall that the negative gradient vector −∇V
+points in the direction that V decreases fastest. Due to the expected decrease
+condition, −∇V will therefore typically roughly point in the direction the state
+moves under the dynamics. Moreover, since the expected decrease condition
+requires a fixed decrease of τ˜xK, the slope ∥∇V ∥ will be roughly constant, at
+least in regions where the step size under the dynamics is roughly constant.
+3.2 Challenges in Verifying RASMs
+The existing verification procedure based on the discrete RASM conditions in
+Def. 5 is generally conservative and computationally expensive. The scalability
+of the procedure is especially limited by the large Lipschitz constant LV of any
+RASM. Concretely, the initial condition in Def. 3 requires a value of at least
+1
+1−ρ in all x ∈ X U, while the safety condition requires a value of at most 1 in all
+x ∈ X 0. Thus, these conditions on the RASM imply that
+LV ≥ 1
+dist(X0, XU)
+ 1
+1 − ρ − 1
+
+,
+where dist(X0, XU) = inf (x0,xu)∈X0×XU ∥x0−xu∥1 is the smallest distance between
+an initial and an unsafe state. Since a large LV leads to a large K, verifying the
+conditions in Def. 5 requires a fine discretization (i.e., a discretization with small
+mesh size τ), which is hence computationally expensive. Moreover, a higher LV
+is required for specifications with a higher threshold probability ρ.
+The limitations of large Lipschitz constants are exacerbated since the RASMV
+and policy π are neural networks. In particular, computing the (smallest) Lipschitz
+constant of a neural network exactly is intractable [86]. Hence, approaches such
+as [95] use loose upper bounds on these Lipschitz constants instead.
+Concretely, our key contributions address these challenges by (1) taking the
+logarithm of the RASM conditions (Sect. 4), which reduces the lower bound on
+LV to 1
+dist(X0,XU ) log
+ 1
+1−ρ
+
+, and (2) computing tighter bounds on the Lipschitz
+constant of neural networks (Sect. 5).
+4 Logarithmic RASMs
+We now turn to our first main contribution, which is proposing the notion of
+logarithmic RASMs, and providing a less conservative method for checking that
+8 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+a function is a logarithmic RASM using a discretization. Our starting point is to
+take the (natural) logarithm of the RASM conditions in Def. 3:
+Definition 6 (logRASM). A continuous function V : X → R is a logarithmic
+RASM (logRASM) if:
+1. Initial condition: V (x) ≤ 0 for all x ∈ X 0;
+2. Safety condition: V (x) ≥ log
+ 1
+1−ρ
+
+for all x ∈ X U;
+3. Expected decrease condition: There exists ϵ > 0 such that for all x ∈ X \ X T
+with V (x) < log
+ 1
+1−ρ
+
+, we have log Eω∼µ
+
+exp
+
+V (f(x, π(x), ω))
+
+≤ V (x) − ϵ.
+The exponential of a logRASM is indeed a RASM:
+Lemma 2 (proof in App. B.4). If V is a logRASM, then exp
+
+V
+
+is a RASM.
+The threshold of the safety condition Def. 6 is only log
+ 1
+1−ρ
+
+, which is much
+smaller (and thus easier to satisfy) than 1
+1−ρ in Def. 3. On the other hand, for
+the expected decrease condition we now have to bound log Eω∼µ [exp(V (xt+1))]
+in Def. 6, which by Jensen’s inequality is always larger than the Eω∼µ [V (xt+1)]
+in Def. 3, and thus the condition of Def. 6 is easier to satisfy. Nevertheless, in
+practice, the positive effect of the (exponentially) smaller threshold is larger.
+Conditions on the discretization. Next, we show how we can check that a function
+V : X → R is a logRASM by checking stronger conditions on a discretization.
+Definition 7 (Discrete logRASM). Let V : X → R be Lipschitz continuous
+with Lipschitz constant LV . Let K = LV Lf (Lπ + 1) and let eX be a discretization
+with mesh sizes τ˜x. Then, V is a discrete logRASM for eX if the following hold:
+1. Initial condition: VUB(˜x) ≤ 0 for all ˜x ∈ eX with cellτ˜x
+∞(˜x) ∩ X0 ̸= ∅.
+2. Safety condition: VLB(˜x) ≥ log
+ 1
+1−ρ
+
+for all ˜x ∈ eX with cellτ˜x
+∞(˜x) ∩ XU ̸= ∅.
+3. Expected decrease condition:
+log Eω∼µ
+h
+exp
+
+V (f(˜x, π(˜x), ω))
+i
+< V LB(˜x) − τ˜xK (4)
+for all ˜x ∈ eX such that cellτ˜x
+∞(˜x) ∩ (X \ X T ) ̸= ∅ and VLB(˜x) < log
+ 1
+1−ρ
+
+.
+The following theorem is the main result of this section and shows that the
+existence of a discrete logRASM implies the existence of a RASM.
+Theorem 2 (proof in App. B.5). If V is a discrete logRASM for a discretiza-
+tion eX , then exp
+
+V
+
+is a RASM.
+We now sketch the proof of Theorem 2. The main difference compared
+to Lemma 1 lies in the expected decrease condition. To show that Eq. (4)
+implies the expected decrease condition in Def. 3 for exp(V ), we first note that
+V (f(x, π(x), ω)) ≤ V (f(˜x, π(˜x), ω)) + τ˜xK by Lipschitz continuity. Hence,
+Eω∼µ
+
+exp
+
+V (f(x, π(x), ω))
+
+≤ Eω∼µ
+
+exp
+
+V (f(˜x, π(˜x), ω)) + τ˜xK
+
+= eτ˜xKEω∼µ
+
+exp
+
+V (f(˜x, π(˜x), ω))
+
+< e τ˜xKe−τ˜xK exp(VLB(˜x)) ≤ exp(V (x)).
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 9
+Finally, we obtain the −ϵ in the expected decrease condition from Def. 3 using a
+compactness argument (see App. B.5 for details), from which Theorem 2 follows.
+The main contribution of Def. 7 and Theorem 2 lies in Eq. (4). Notably,
+proving that Eq. (4) is sufficient for showing that the expected decrease condition
+holds effectively exploits the local Lipschitz constant of exp, rather than the
+global Lipschitz constant of exp(V ). Indeed, if we would directly adapt the proof
+of Lemma 1, we would obtain the condition
+Eω∼µ
+
+exp
+
+V (f(˜x, π(˜x), ω))
+
+< exp(VLB(˜x)) − τ˜xK ′ (5)
+where K ′ = 1
+1−ρ K is a Lipschitz constant of exp(V ), where we use that we can
+cap any RASM at 1
+1−ρ. The following lemma shows that our novel condition
+Eq. (4) is always a weaker (i.e., better) condition than Eq. (5).
+Lemma 3 (proof in App. B.6). Let K ′ = 1
+1−ρ K > 0. If VLB(˜x) < log
+ 1
+1−ρ
+
+,
+then exp(VLB(˜x)) − τ˜xK ′ < exp(VLB(˜x) − τ˜xK).
+Example 1. As a concrete example, considerρ = 0.9999, K ′ = 20, and VLB(˜x) = 5.
+Then exp(VLB(˜x)) − τ˜xK ′ ≈ −51.6 < 145.5 ≈ exp(VLB(˜x) − τ˜xK), showing that
+Eq. (4) is much easier to satisfy than Eq. (5). To obtain a right hand side of 145.5
+in Eq. (5) we would require τ˜x ≈ 1.5 · 10−5. Hence, our new approach allows a
+discretization that is more than 60 times coarser (in each dimension).
+Shape of a discrete logRASM. Although both a discrete RASM and the expo-
+nential of a discrete logRASM yield a RASM, they typically look quite different.
+Due to the fixed decrease of τ˜xK required by the expected decrease condition (4),
+also a discrete logRASM generally has a nearly constant slope ∥∇V ∥, similarly
+to a discrete RASM. However, a RASM V ′ has an exponentially larger Lipschitz
+constant K and thus an (exponentially) larger slope than a logRASM V . After
+taking the exponential, the RASM exp(V ) has a similar slope as V ′ at points
+where V ′ and exp(V ) are large, but exp(V ) has a smaller slope at points where
+V ′ and exp(V ) are small.
+5 Tighter Lipschitz Constants for Neural Networks
+Our second main contribution is a novel method to compute tighter Lipschitz
+constants for feed-forward neural networks. In particular, to obtain tighter
+global Lipschitz constants, we combine the use of weighted 1-norms defined by
+∥x∥ =P
+i wi|xi| (for weights wi > 0) with averaged activation operators [35].
+We first provide some intuition on why using weighted norms leads to tighter
+Lipschitz constants. For the standard, unweighted norm, the Lipschitz constant
+provides the same upper bound on the change of a function in each direction.
+In contrast, weighted norms allow for different bounds in different directions.
+When composing functions (e.g., different neural network layers), the method
+with standard norm therefore assumes the same upper bound on the change in
+10 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+all directions, while our method accounts for the upper bound on each individual
+direction. Since these bounds are generally tighter for all but the maximal
+direction, our method computes tighter Lipschitz constants.
+We consider feed-forward neural networks with linear layers:
+Definition 8 (Neural network).An (n+1)-layer (feed-forward) neural network
+with dimensions mk (0 ≤ k ≤ n) is a sequence of tuples A := (⟨Ak, bk, Rk⟩)n
+k=1,
+where Ak ∈ Rmk×mk−1 are matrices,9 bk ∈ Rmk are biases, and Rk : Rmk → Rmk
+are activation functions. The operator T A : Rm0 → Rmn corresponding to A maps
+x0 to xn, where xk is defined recursively by xk = Rk (Akxk−1 + bk) for 1 ≤ k ≤ n.
+Assumption 2. The Lipschitz constant of each activation function Rk is 1.
+Assumption 2 is satisfied by common activation functions such as ReLU, Softplus,
+tanh, and sigmoid. It is straightforward to generalize our results to any Lipschitz
+continuous activation functions, but we do not pursue this here. In the following,
+we use the notation introduced in Def. 8 for the components of the neural network.
+5.1 Weighted Norms
+A weighted 1-norm of dimension m is a function from Rm to R defined by
+∥x∥ =Pm
+i=1 wi∥xi∥, where w ∈ Rm
+>0. By combining a weighted 1-norm for each
+layer of a neural network, we obtain a weight system.
+Definition 9 (Weight system). A weight system W for an (n+1)-layer neural
+network consists of a weighted 1-norm ∥x∥k
+W = Pmk
+i=1 wk
+i |xi| for each layer
+0 ≤ k ≤ n, where wk ∈ Rmk
+>0 and maxi wk
+i = 1.10
+Given weighted norms ∥ · ∥k
+W and ∥ · ∥ℓ
+W on Rmk and Rmℓ, we define the weighted
+norm for a matrix M ∈ Rmℓ×mk as ∥M ∥k,ℓ
+W = sup
+n
+∥M x∥ℓ
+W
+∥x∥k
+W
+ x ∈ Rmk , x ̸= 0
+o
+.
+The next lemma shows how we compute ∥M ∥k,ℓ
+W in practice.
+Lemma 4 (proof in App. B.7). Let M ∈ Rmℓ×mk be a matrix with entries
+Mij. Equip the space Rmk with the norm ∥x∥k
+W =Pmk
+i=1 wk
+i |xi|, and the space
+Rmℓ with the norm ∥x∥ℓ
+W =Pmℓ
+i=1 wℓ
+i |xi|. Then the corresponding matrix norm
+satisfies ∥M ∥k,ℓ
+W = max
+1≤j≤mk
+h
+1
+wk
+j
+Pmℓ
+i=1 wℓ
+i |Mij|
+i
+.
+We now define the Lipschitz bound of a neural network for a weight system.
+Definition 10 (Lipschitz bound). The Lipschitz bound of a neural network A
+for a weight system W is LA,W =Qn
+ℓ=1∥Aℓ∥ℓ−1,ℓ
+W .
+The Lipschitz bound LA,W is indeed a Lipschitz constant of the operator T A:
+9 We use A rather than the standard W for the matrices of the neural network to
+avoid confusion with the weights from weighted norms.
+10 We assume w.l.o.g. that the max. weight is 1: we may rescale all weights (and thus
+the Lipschitz bound).
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 11
+−1 −0.5 0.5 1
+−1
+−0.5
+0.5
+1 ours,|x2| ≤1
+[83],|x2| ≤1
+−2/6 −1/6 1/6 2/6
+−2/6
+−1/6
+1/6
+2/6 ours,|x2| ≤1
+[83],|x2| ≤1
+Fig. 4: On the left: The region such that we prove that the input x1 of the hidden
+layer maps to output x2 with |x2| ≤ 1. On the right: The region such that the
+input x0 maps to output x2 with |x2| ≤ 1. In black: our approach, in red: [83].
+Lemma 5 (proof in App. B.8). Let W be a weight system. Then LA,W is
+a Lipschitz constant of T A, i.e. ∥T A(x) − T A(x′)∥n
+W ≤ LA,W ∥x − x′∥0
+W for all
+x, x′ ∈ Rm0. If additionally wn
+i = 1 for all 1 ≤ i ≤ mn, then LA,W is a Lipschitz
+constant of T A for the standard (unweighted) 1-norm, i.e. ∥T A(x) − T A(x′)∥ ≤
+LA,W ∥x − x′∥ for all x, x′ ∈ Rm0.
+By choosing the same unweighted norm for each layer, one may recover the
+Lipschitz bound from [83], which corresponds to the approach presented in [95].
+We now show that choosing weights aptly can lead to smaller Lipschitz bounds:
+Example 2. Consider a neural network with 3 layers (1 hidden layer), matrices
+A1 =
+ 4 −1
+−1 1
+
+and A2 =
+1 2
+, biases b1 =
+0
+0
+
+and b2 = 0, and ReLU activation
+functions. Define a weight system W by w0
+1 = 1, w0
+2 = 1
+2, w1
+1 = 1
+2, w1
+2 = 1, and
+w2
+1 = 1. Then Lemma 4 yields LA,W = ∥A1∥0,1
+W ∥A2∥1,2
+W = 3 · 2 = 6. In contrast,
+the Lipschitz bound from [83] is ∥A1∥∥A2∥ = 5 · 2 = 10. While both approaches
+compute a bound of 2 corresponding to A2, our approach using the weighted
+norms records that the effect of the first neuron is only w1
+1 = 1
+2 times ∥A2∥ = 2,
+which in turn yields a tighter bound for A1, namely 3 instead of 5. We illustrate
+these better bounds for each layer in Fig. 4. For the first layer, we only get a
+better bound for one of the directions, but then using this, we get a better bound
+for both directions and hence a better Lipschitz constant for the second layer.
+Next, we show how to compute a weight system W such that LA,W is lowest
+among all weight systems, for given weights on the output layer. 11 We call such
+a weight system optimal. Observe that the Lipschitz bound decreases when the
+weights on the input layer increase. This observation motivates the following
+optimality criterion for weights, which is based on the product of the Lipschitz
+bound and the weights on the input layer.
+Definition 11 (Optimality). A weight system W is optimal for output weights
+wn if the Lipschitz bound satisfies LA,W w0
+j ≤ LA, fWew0
+j for all 1 ≤ j ≤ m0 and all
+weight systems fW with output weights wn, where ew0 are the input weights of fW.
+Lemma 6 (proof in App. B.9). If W is optimal for output weights wn, then
+LA,W ≤ LA, fW for all weight systems fW with output weights wn.
+11 In practice, we set the weights on the output layer all to 1, since in the end we are
+interested in Lipschitz bounds for the unweighted 1-norm.
+12 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+Algorithm 1 Computing optimal weights.
+Input: Output weights wn for output layer n, matrices Ak ∈ Rmk×mk−1 (1 ≤ k ≤ n)
+as in Def. 8.
+Output: Input weights w0 and a Lipschitz bound K such that (w0, K) is optimal.
+for ℓ = n, . . . ,1 do
+Kℓ ← max
+1≤j≤mℓ−1
+Pmℓ
+i=1wℓ
+i |(Aℓ)ij| ▷ Lipschitz constant ∥Aℓ∥ℓ−1,ℓ
+W if wℓ−1
+j = 1 for all j
+for j = 1, . . . , mℓ−1 do
+wℓ−1
+j ← 1
+Kℓ
+Pmℓ
+i=1wℓ
+i |(Aℓ)ij| ▷ Smallest weight for which Lipschitz constant is Kℓ
+return w0,Qn
+ℓ=1 Kℓ ▷ Return input weights and Lipschitz bound K
+We now explain how Algorithm 1 computes an optimal weight system. Given
+weights wℓ
+i for the space Rmℓ, we can set the normalized weights wk
+j in Lemma 4
+proportional to Pmℓ
+i=1 wℓ
+i |Mij|, which implies that the maximum in Lemma 4 is
+attained for all 1 ≤ j ≤ mk. Algorithm 1 starts from given output weights wn
+i
+and iteratively computes weights wℓ−1
+j given weights wℓ
+i in this way. Then the
+maximum in Lemma 4 is attained by all 1 ≤ j ≤ mℓ−1 for the matrix M = Aℓ.
+Theorem 3 (Correctness of Algorithm 1; proof in App. B.10). Let
+output weights wn be given. Then the weights wℓ
+j computed using Algorithm 1 are
+optimal for output weights wn.
+In practice, we set the output weights wn
+i = 1 for all i. Then Algorithm 1
+computes a Lipschitz constant of T A for the unweighted 1-norm, cf. Lemma 5.
+5.2 Averaged Activation Operators
+Next, we explain how to combine weighted norms with averaged activation
+operators [17,35] to compute even tighter Lipschitz constants. Let LT A denote
+the Lipschitz constant of the neural network operator T A.
+Definition 12. An α-averaged activation operator (0 < α < 1) is an operator
+R: R → R that satisfies R = (1 − α)Id + αQ for some Q: R → R with Lipschitz
+constant 1 and identity function Id.
+Since ReLU(x) = 1
+2 x + 1
+2 |x|, the ReLU is 1
+2-averaged. For simplicity, we only use
+1
+2-averaged activation operators. We extend a result of [35] to weighted norms:
+Theorem 4 (proof in App. B.11). Consider an (n + 1)-layer network with
+1
+2-averaged activation operators Rk. Let W be a corresponding weight system. Let
+Sn = {(k1, k2, . . . , kr) ∈ Nr
+0 | 0 ≤ r ≤ n − 1, 1 ≤ k1 < k 2 < · · · < k r ≤ n − 1}.
+Then, the Lipschitz constant LT A of the neural network operator T A satisfies
+LT A ≤ 1
+2n−1
+X
+(k1,k2,...,kr)∈Sn
+"r+1Y
+ℓ=1
+∥Akℓ . . . Akℓ−1+1∥kℓ−1,kℓ
+W
+#
+,
+where we set k0 = 0 and kr+1 = n.
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 13
+For n = 2, this yields LT A ≤ 1
+2
+
+∥A2A1∥0,2
+W + ∥A2∥1,2
+W ∥A1∥0,1
+W
+
+, which (by the
+submultiplicativity of the matrix norm) is smaller than ∥A1∥1,2
+W ∥A0∥0,1
+W .
+In the general case, the submultiplicativity of the matrix norm implies that
+each of the 2 n−1 summands in the sum is at most Qn
+ℓ=1 ∥Aℓ∥ℓ−1,ℓ
+W . Hence,
+the bound in Theorem 4 is (for given weights W) tighter than the boundQn
+ℓ=1 ∥Aℓ∥ℓ−1,ℓ
+W . The intuition for the result is that for the ‘identity part’ of
+the averaged activation operator, we take the matrix product inside the matrix
+norm (which gives a smaller result than taking the product of the matrix norms).
+The fact that Theorem 4 yields tighter bounds does not contradict the opti-
+mality in Theorem 3, since Theorem 3 only applies if the formula Qn
+ℓ=1 ∥Aℓ∥ℓ−1,ℓ
+W
+is used, while the bound in Theorem 4 is always smaller for given weights.
+Example 3. Consider the network introduced in Example 2, for which we have
+A2A1 =
+2 1
+. Then just using averaged activation operators (as in [35]) yields a
+bound of LT A ≤ 1
+2 (∥A2A1∥ + ∥A2∥∥A1∥) = 1
+2 (2 + 2 · 5) = 6, while using both
+weighted norms and averaged activation operators (Theorem 4) yields a bound
+of LT A ≤ 1
+2
+
+∥A2A1∥0,2
+W + ∥A2∥1,2
+W ∥A1∥0,1
+W
+
+= 1
+2 (2 + 2 · 3) = 4.
+6 Learner-Verifier Framework
+Following [95], we implement our techniques from Sects. 4 and 5 in the learner-
+verifier framework from Fig. 3. Given an initial policy π (which we assume to
+be a neural network), the learner trains the certificate V to be a logRASM.
+The verifier checks whether V is a discrete logRASM (as per Def. 7), and thus
+whether exp(V ) is a RASM. Checking these conditions involves the Lipschitz
+constants Lπ and LV , which we compute using our techniques from Sect. 5. We
+terminate and return the certificate V upon satisfaction of these conditions. If
+the conditions are not satisfied, the verifier either refines the discretization or
+returns counterexamples to the learner. As the learner also updates the policy π,
+we effectively solve the following problem:
+Problem 2 (Policy synthesis). Given a DTSS S, compute a policy π such
+that the reach-avoid specification ⟨XT , XU , ρ⟩ is satisfied.
+Termination of the learner-verifier implies that we have solved Problem 2.
+Verifier. Recall that the verifier checks the discrete logRASM conditions from
+Def. 7 on a discretization eX of the state space. When the verifier finds a point
+˜x ∈ eX that violates these conditions, we either decrease the mesh size τ˜x of ˜x (to
+try and mitigate the violation) or return ˜x as a counterexample to the learner.
+Local refinement. Decreasing the mesh size τ˜x of the point ˜x can only mitigate a
+violation if ˜x is not a hard violation of the logRASM conditions. Hard violations
+are points ˜x ∈ eX that already suffice to prove that the current candidate certificate
+V is not a logRASM. For example, consider a point ˜x ∈ eX ∩ X 0 that violates
+the discrete logRASM initial condition, i.e., VUB(˜x) > 0. If the logRASM initial
+condition is also violated, i.e., V (˜x) > 0, then V cannot be a logRASM, so ˜x is a
+hard violation. We use an analogous argument for the other conditions.
+14 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+We iteratively refine the discretization as long as none of the violations are
+hard violations, similar to common abstraction refinement schemes [34,39,85].
+Specifically, we split the set cellτ˜x
+∞(˜x) associated with each (non-hard) violation ˜x
+into multiple smaller cells whose mesh size τ˜x is reduced by a factor of C ∈ (0, 1).
+In the context of supermartingale certificates, such refinements are also used
+by [14]. As a novel aspect, we observe that the reduction in τ˜x needed to
+mitigate a violation depends on the degree to which a condition is violated, so
+we use a different factor C for each violation. We discuss in App. A.2 how we
+compute informed values for C. Importantly, the verifier only still needs to check
+the discrete logRASM conditions for the points associated with these new cells:
+points ˜x that are not a violation cannot become a violation due to a discretization
+with a smaller mesh size τ˜x.
+Counterexamples. When the verifier finds at least one hard violation, we stop
+the refinement and return all violations eX ′ ⊆ eX to the learner. These violations
+of the initial, safety, and expected decrease conditions are, respectively, added to
+three sets of counterexamples, denoted by C0, CU, and CE. However, if there are
+many violations, these counterexample sets become large. Thus, we implement
+these sets as buffers of a fixed size and, in each iteration, randomly replace a
+fixed fraction of the samples with new counterexamples.
+Learner. The learner trains the certificate V and the policy π on a differentiable
+version of the logRASM conditions in Def. 6. The learner minimizes the loss
+function L(π, V ) = L0(V ) +LU(V ) +α · LE(π, V ), with hyperparameter α ∈ R≥0,
+and where each term models a differentiable version of a logRASM condition:
+L0(V ) = max
+x∈P0
+{max{V (x) + ε, 0}} ,
+LU(V ) = 1
+log( 1
+1−ρ) max
+x∈PU
+n
+max
+
+log
+ 1
+1−ρ
+
+− V (x) + ε, 0
+	o
+,
+LE(π, V ) = 1
+|PE|
+X
+x∈PE
+max
+
+log
+ 1
+N
+X
+ωi∼d
+exp
+
+V (f(x, π(x), ωi))
+
+−V (x)+τ K′+ε′, 0
+
+.
+The points P0, PU, and PE over which we check the conditions consist of ran-
+domly sampled points (which are freshly sampled each epoch) and the respective
+counterexamples C0, CU, and CE returned by the verifier in previous iterations.
+The loss LE(π, V ) approximates the expected decrease condition over a finite
+number N of noise samples, ωi ∼ d. The terms ε, ε′ ∈ R≥0 ensure that a loss of
+zero implies that the logRASM conditions are strictly satisfied at the points in
+the sets P0, PU, and PE. Finally, K ′ = K + LV = LV (Lf(Lπ + 1) + 1) is the
+Lipschitz constant of the function x 7→ log Eω∼µ[exp(V (f(x, π(x), ω)))] − V (x),
+and τ is a loss mesh size chosen specifically for the problem.
+7 Empirical Evaluation
+We perform numerical experiments to answer the following questions about our
+techniques, implemented in the learner-verifier framework described in Sect. 6:
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 15
+Q1: Can our methods be used to verify reach-avoid specifications with high
+probability bounds in challenging benchmarks?
+Q2: Is our learner-verifier framework robust to deviations in the input policy?
+Q3: How does our method for computing Lipschitz constants (Sect. 5) compare
+to other methods for computing Lipschitz constants of neural networks?
+Setup. All experiments are run on a server running Debian, with an AMD
+Ryzen Threadripper PRO 5965WX CPU, 512 GB of RAM, and an NVIDIA
+GeForce RTX 4090 GPU. Our Python implementation uses JAX [23] (v0.4.26)
+with GPU acceleration. The policy and certificate neural networks both consist
+of 3 hidden layers of 128 neurons each. See App. C.2 for all hyperparameters.
+Our implementation is available at https://doi.org/10.5281/zenodo.15214887.
+Q1. Verifying Reach-Avoid Specifications
+We compare learner-verifier frameworks that implement different combinations
+of our verifier techniques: logRASM+Lip is our proposed verifier as described in
+Sect. 6 (i.e., using both logRASMs and improved Lipschitz bounds), logRASM only
+uses logRASMs, Lip only uses improved Lipschitz bounds, and the baseline
+uses neither. Since Lip and baseline train a (standard) RASM, these learner-
+verifiers use a different loss function (cf. App. C.3) based on the RASM conditions.
+The verifier in the baseline checks (except for Remark 1) the same discrete
+RASM conditions as in [95], but our learner-verifier framework differs in several
+algorithmic aspects. To obtain a fairer comparison between the cases, we use our
+own implementation as a baseline that we can also run on the same hardware.
+However, the baseline results are generally competitive with those in [95].
+Benchmarks. We consider all benchmarks from [95] (linear-sys, pendulum, and
+collision-avoid), as well as a version of linear-sys with a more challenging
+layout. These four benchmarks have 2D state spaces. In addition, to assess the
+limits of our approach, we consider more challenging benchmarks with 3D and
+4D state spaces. We consider reach-avoid specifications with different probability
+bounds ranging from ρ = 0.8 to 0 .999999. We pretrain all policies with proximal
+policy optimization (PPO) [78] for 100,000 steps, which takes less than 30 seconds
+per instance (except for drone4D and planar-robot, which are trained for 1 and
+10 million steps, respectively). We use a loss function that also penalizes high
+Lipschitz constants. For details on the benchmarks, we refer to App. C.1.
+Solving Problem 2. We show that our method reliably learns verified policies
+with only minor parameter tuning on individual benchmarks. Each instance
+is run on 10 seeds and is considered as failed when 3 or more seeds do not
+terminate within a 30 minute timeout. We run our learner-verifier framework
+with the same hyperparameters across all 2D benchmarks; for the 3D and 4D
+benchmarks, we only slightly tune hyperparameters to adapt to these higher
+dimensions (see App. C.2 for details). The average times required to find a valid
+(log)RASM are presented in Table 1 (excluding the time to train input policies).
+For all benchmarks, our new method is able to consistently verify (much) higher
+16 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+Table 1: Average runtimes (in sec.) and st.dev. over 10 seeds (timeout of 30 min;
+d and m are the state and action space dimensions). See App. C.2 for the
+hyperparameters. An instance is considered as failed if 3 or more seeds time out.
+Probability boundρ
+Benchmarkd m Learner-verifier 0.8 0.9 0.99 0.999 0.9999 0.999999
+linear-sys2 1
+logRASM+Lip (ours)47±5 50±6 52±6 50±7 51±8 42±6
+logRASM 54±1 53±1 52±1 52±1 52±1 51±2
+Lip 45±3 42±5 79±18 180±66 545±117∗ –
+baseline 88±10 89±4 308±157 699±224 – –
+linear-sys
+(hard layout)2 1
+logRASM+Lip (ours)103±9 109±7 110±5 127±4 138±25 175±25∗
+logRASM 283±40 386±73 668±151 – – –
+Lip – – – – – –
+baseline – – – – – –
+pendulum 2 2
+logRASM+Lip (ours)77±10 71±2 85±2 99±11 107±11 137±43
+logRASM 226±23 229±26 216±13 221±30 239±28 218±7
+Lip 108±7 191±27 – – – –
+baseline 721±168 – – – – –
+collision-
+avoid 2 2
+logRASM+Lip (ours)69±1∗∗ 68±2 94±5 108±2 122±2 137±3
+logRASM 107±1 116±10 147±10 170±9 188±11 227±3
+Lip 117±6 152±12 391±42 – – –
+baseline 252±16∗∗ – – – – –
+triple-
+integrator3 1
+logRASM+Lip (ours)793±180∗ 700±258 630±114 675±156 597±111 606±108
+logRASM – 1394 ±148 1397±134∗∗ – 1396 ±228 –
+Lip 1430±182∗∗ – – – – –
+baseline – – – – – –
+planar-
+robot 3 2
+logRASM+Lip (ours)326±44 380±89 341±58 341±94 491±99 –
+logRASM 720±262 – – – – –
+Lip – – – – – –
+baseline – – – – – –
+drone4D 4 2
+logRASM+Lip (ours)665±282∗∗ 656±164 765±276∗ 873±124 – –
+logRASM – – – – – –
+Lip – – – – – –
+baseline – – – – – –
+* One timeout out of ten seeds;∗∗ Two timeouts out of ten seeds.
+probability bounds ρ (99.9999% for all 2D benchmarks) at lower run times than
+the other learner-verifiers. The best bounds successfully verified by our baseline
+are slightly lower than the values from [95]. However, we use a lower timeout
+(30 minutes instead of 3 hours) and consider an instance failed if > 2/10 seeds
+failed, whereas [95] reports the highest bound successfully verified. Finally, the
+results for the 3D and 4D benchmarks clearly show that our method scales to
+benchmarks that were out of reach for the baseline.
+Learned logRASMs. Four logRASMs learned using our method are shown in
+Fig. 5. Especially the linear-sys (hard layout) benchmark requires a logRASM
+with a non-trivial shape, illustrating the usefulness of neural networks to represent
+certificates. For a RASM with the same bound of ρ = 0.999999, the learner would
+train the certificate to have values up to at least 10 6, which is required to satisfy
+the safety condition ( V (x) ≥ 1
+1−ρ = 106). By contrast, the learned logRASMs in
+Fig. 5 only take values between −20 and 75, making them easier to learn.
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 17
+Fig. 5: The logRASMs learned using our new method ( logRASM+Lip).
+Table 2: Runtimes (in seconds) for verifying reach-avoid specifications (with
+probability ρ = 0.999999) on input policies trained with several RL algorithms
+for different numbers of steps (avgs. and st.dev. over 10 seeds; timeout of 30 min).
+α = 10, τ = 0.0005 α = 0.1, τ = 0.001
+Benchmark Steps TRPO TQC SAC A2C TRPO TQC SAC A2C
+linear-sys
+1 ×104 55±1 135±37 143±48 112±32 86±2 171±1 167±9 166±14
+1 ×105 66±18 180±7 177±18 115±26 89±9 185±19 176±5 170±1
+1 ×106 67±1 173±3 170±2 91±43 109±23 334±276∗ 338±193∗ 134±46
+linear-sys
+(hard layout)
+1 ×104 192±23 240±3 245±19 226±31 170±3 246±41 242±55 242±20
+1 ×105 188±3 245±22 236±3 238±3 237±16∗∗ 173±19 163±1 256±40
+1 ×106 212±39 314±15 316±18 219±25 264±34 – – 261 ±56
+pendulum
+1 ×104 219±20∗ 206±13 – 196 ±21 365±127 652±312 543±262 415±184
+1 ×105 – 279 ±42∗∗ 295±66∗∗ 193±24∗ 427±180 708±190 400±161 447±240
+1 ×106 267±39∗ – – – 525 ±259 498±194 334±45 496±251
+collision-
+avoid
+1 ×104 133±7 194±7 199±7 197±12 167±18 175±2 176±3 183±21
+1 ×105 101±3 199±7 198±8 190±13 95±1 176±2 178±2 174±2
+1 ×106 191±28 246±22 276±30 194±29 169±16 – – 170 ±15
+* One timeout out of ten seeds;∗∗ Two timeouts out of ten seeds.
+Q2. Robustness to Input Policies
+We consider the same benchmarks as in Table 1 (with ρ = 0.999999 and with
+our logRASM+Lip learner-verifier) but now pretrain input policies using the
+Stable-Baselines3 [74] implementation of the RL algorithms TRPO, TQC,
+SAC, and A2C (with default parameters; see App. C.1 for the loss functions) for
+either 104, 105 or 106 steps. Since we use these implementations unchanged, we
+now do not train for a lower Lipschitz constant (in contrast to the PPO-trained
+policies for Q1), but for a (state-based) reward function. Note that the RL
+reward maximization may not be able to fully capture the nature of a reach-avoid
+specification. Each instance is run on 10 seeds and is considered failed when 3 or
+more seeds do not terminate within 30 minutes.
+The run times in Table 2 show that our method is generally agnostic to the
+policy training algorithm. We observe that training the policies longer tends to
+slightly increase the time to verify the policy, which can be a sign of over-training
+policies to maximize rewards. Moreover, the values of the hyperparameters α
+and τ in the loss function (cf. Sect. 6) influence the performance on individual
+benchmarks (e.g., we cannot reliably verify all pendulum policies for α = 10,
+18 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+τ = 0.0005). In conclusion, our method is reasonably robust against the input
+policy, but finding common hyperparameters for all benchmarks is difficult.
+Q3. Comparison of Lipschitz Constants
+We demonstrate the need for our efficient method to compute Lipschitz constants
+when solving Problems 1 and 2. We compare our techniques from Sect. 5 against
+the anytime algorithm LipBaB [21], a competitive solver for computing global
+Lipschitz constants, on the final policy and certificate networks (cf. App. D).
+Our method takes 0 .2 s to compute a Lipschitz constant (and only 0 .0002 s when
+already JIT-compiled). LipBaB returns a first Lipschitz constant after 0.5 s (which
+is, on average, 40% larger than ours) and requires usually more than 100 s to
+compute a better Lipschitz constant than ours. A typical benchmark requires
+3–10 verifier iterations, each of which takes around 20 s, so better results from
+LipBaB may not outweigh the increase in verifier run time. For example, even
+just using LipBaB in the final verifier-iteration would, on most benchmarks, more
+than double the total runtimes from Table 1.
+Discussion and Limitations
+Beyond the mentioned scalability limitation (w.r.t. the dimension of the state
+space) in Q1, our experiments do not address the following: (1) We did not
+consider the robustness w.r.t. the loss functions used for pretraining and the
+learner. (2) We did not consider multiplicative RASMs as introduced in [96],
+although our results would also apply to these RASMs. (3) We did not consider
+using only IBP for the expected decrease condition. This would require piecewise
+linear under- and overapproximations of the dynamics as proposed by [66,67].
+8 Related Work
+Policy verification/synthesis for stochastic dynamical systems has largely been
+addressed using two approaches. The first is to generate a model-based [16,61,91,
+93] or data-driven [51,54] abstraction (e.g., as a finite Markov decision process)
+and use probabilistic model checking on this abstraction. The second approach
+(which we take in this work) is to find a certificate function that implies the
+satisfaction of a specification. These approaches differ from typical objectives in
+constrained [8,11] and safe RL [10,18], which mostly focus on maximizing rewards
+while satisfying constraints on expected costs or safety in exploration [25,46].
+Certificates are used in several areas, e.g., Lyapunov [38,58] and control barrier
+functions [12, 32, 64] in control, and ranking functions [24, 45, 71] in program
+analysis. For stochastic systems, the value of the certificate along trajectories
+needs to be a supermartingale [33,55,72]. Besides the RASMs [95,96] we build
+upon in this paper, [69] uses neural supermartingale certificates for continuous-
+time stochastic systems, and [6] proposes certificates for ω-regular properties
+in stochastic systems but makes restrictive assumptions to achieve a practical
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 19
+algorithm. Supermartingales are also used to analyze termination [5, 9, 28, 31]
+and reachability [84] of probabilistic programs. Various recent papers represent
+such certificates as neural networks [2, 29,37,76, 90,94]. The resulting candidate
+certificate (i.e., the neural network) can be verified using satisfiability modulo
+theories (SMT) [1,4], branch-and-bound [65], or (like our approach) discretization
+and leveraging Lipschitz continuity [62, 95]. Yet, all of these approaches are
+computationally expensive: SMT does not scale to large neural networks, whereas
+branch-and-bound and discretization do not scale with the state space dimension.
+Neural Network Robustness and Lipschitz Constants
+The use of Lipschitz constants as a measure of neural network stability and
+robustness was pioneered by [83], who propose the product of the Lipschitz
+constants of each layer as an upper bound for the Lipschitz constant of the
+network. This bound is fast to compute, but also very loose. Recently, there
+has been significant work in devising methods for computing tighter global and
+local Lipschitz constants. However, these methods are not designed for the large
+number of calls that our learner-verifier framework requires. Since the Lipschitz
+constant appears in the loss function, we need to recompute it for every batch and
+every epoch, leading to roughly 1,000 Lipschitz computations per learner-verifier
+iteration. Hence, even spending 20 ms on each Lipschitz computation would slow
+down our iterations by a factor two. Besides speed, another requirement is that
+the Lipschitz computation is differentiable, so that effects of weight updates on
+the Lipschitz constant are taken into account in the gradient of the loss function.
+We now discuss why existing methods from the literature are (despite yielding
+tighter bounds on Lipschitz constants) less suited to our needs. Algorithms
+that compute global Lipschitz constants include LipBaB [43] and methods using
+semidefinite programming [21,87]. However, these methods are not differentiable,
+and have running times on the order of seconds per call. Methods for computing
+local Lipschitz constants include analytical bounds from [15], LiPopt [48], LipMIP
+[56], FastLin and FastLip [88], GenBaB [79], Recurjac [80, 92]. The analytical
+methods from [15] are fast, but only apply relative to a fixed base point rather
+than within some region, which makes them unusable in our stochastic context.
+Out of the local methods, FastLin and FastLip [88] are the fastest, but running
+times of 5 ms per call are still too slow in our context for a local method.
+We utilize results from [35] in Sect. 5.2, which is to our knowledge the only
+method (besides [83]) that can compute global Lipschitz constants sufficiently
+fast. We note that [68], which trains neural networks to certify the relation
+between two systems, also uses [35] to compute their Lipschitz constants (and
+could therefore improve their results by using the method proposed in this paper
+instead). Anisotropic certification [42] is similar to our weighted norms, but does
+not include an algorithm to compute optimal weights.
+Besides approaches to bound Lipschitz constants, training networks to have
+a small Lipschitz constant is studied by [26,49,70]. However, for our purposes,
+we need an upper bound of the Lipschitz constant, and training a network
+to have a low Lipschitz constant does not guarantee that an upper bound
+20 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+for that Lipschitz constant computed with a particular method is also small.
+Another approach to neural network robustness is interval bound propagation
+(IBP), a technique to propagate interval inputs through neural networks [50].
+Finally, a different line of research considers the adversarial robustness of neural
+networks [22, 47, 53, 57, 60, 83]. We refer to the survey articles [52, 97] for a
+comprehensive overview of verification and robustness of neural networks.
+9 Conclusion
+We presented two contributions to improve the verification of policies in stochastic
+systems using reach-avoid supermartingales (RASMs). First, our logRASMs take
+exponentially lower values and hence have lower (theoretical) Lipschitz constants
+than (standard) RASMs. Second, we compute tight bounds on Lipschitz constants
+by integrating the novel idea of weighted norms with averaged activation operators.
+Our experiments show that our techniques allow the verification of reach-avoid
+specifications with much higher probability bounds than the state-of-the-art.
+Future work includes generalizing our method for computing bounds on Lips-
+chitz constants to broader classes of neural networks. In addition, while this work
+focuses on the verifier, improving the learner and the choice of counterexamples
+can improve the overall performance of the learner-verifier framework. Finally,
+we wish to investigate the robustness of the learner-verifier against perturbations
+in the system dynamics and the specification.
+Acknowledgments. This research has been funded by the ERC Starting Grant
+101077178 (DEUCE), the EPSRC grant EP/Y028872/1 (Mathematical Foundations
+of Intelligence: An “Erlangen Programme” for AI), the Wallenberg AI, Autonomous
+Systems and Software Program (WASP) funded by the Knut and Alice Wallenberg Foun-
+dation, the NWO Veni Grant ProMiSe (222.147), and the NWO grant NWA.1160.18.238
+(PrimaVera).
+Disclosure of Interests. The authors have no competing interests to declare that are
+relevant to the content of this article.
+References
+1. Abate, A., Ahmed, D., Edwards, A., Giacobbe, M., Peruffo, A.: FOSSIL: a software
+tool for the formal synthesis of Lyapunov functions and barrier certificates using
+neural networks. In: HSCC. pp. 24:1–24:11. ACM (2021)
+2. Abate, A., Ahmed, D., Giacobbe, M., Peruffo, A.: Formal synthesis of Lyapunov
+neural networks. IEEE Control. Syst. Lett. 5(3), 773–778 (2021)
+3. Abate, A., David, C., Kesseli, P., Kroening, D., Polgreen, E.: Counterexample
+guided inductive synthesis modulo theories. In: CAV (1). Lecture Notes in Computer
+Science, vol. 10981, pp. 270–288. Springer (2018)
+4. Abate, A., Edwards, A., Giacobbe, M., Punchihewa, H., Roy, D.: Quantitative
+verification with neural networks. In: CONCUR. LIPIcs, vol. 279, pp. 22:1–22:18.
+Schloss Dagstuhl - Leibniz-Zentrum f¨ ur Informatik (2023)
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 21
+5. Abate, A., Giacobbe, M., Roy, D.: Learning probabilistic termination proofs. In:
+CAV (2). Lecture Notes in Computer Science, vol. 12760, pp. 3–26. Springer (2021)
+6. Abate, A., Giacobbe, M., Roy, D.: Stochastic omega-regular verification and control
+with supermartingales. In: CAV (3). Lecture Notes in Computer Science, vol. 14683,
+pp. 395–419. Springer (2024)
+7. Abate, A., Prandini, M., Lygeros, J., Sastry, S.: Probabilistic reachability and safety
+for controlled discrete time stochastic hybrid systems. Autom. 44(11), 2724–2734
+(2008)
+8. Achiam, J., Held, D., Tamar, A., Abbeel, P.: Constrained policy optimization. In:
+ICML. Proceedings of Machine Learning Research, vol. 70, pp. 22–31. PMLR (2017)
+9. Agrawal, S., Chatterjee, K., Novotn´ y, P.: Lexicographic ranking supermartingales:
+an efficient approach to termination of probabilistic programs. Proc. ACM Program.
+Lang. 2(POPL), 34:1–34:32 (2018)
+10. Alshiekh, M., Bloem, R., Ehlers, R., K¨ onighofer, B., Niekum, S., Topcu, U.: Safe
+reinforcement learning via shielding. In: AAAI. pp. 2669–2678. AAAI Press (2018)
+11. Altman, E.: Constrained Markov decision processes. Routledge (2021)
+12. Ames, A.D., Xu, X., Grizzle, J.W., Tabuada, P.: Control barrier function based
+quadratic programs for safety critical systems. IEEE Trans. Autom. Control. 62(8),
+3861–3876 (2017)
+13. Amodei, D., Olah, C., Steinhardt, J., Christiano, P.F., Schulman, J., Man´ e, D.:
+Concrete problems in AI safety. CoRR abs/1606.06565 (2016)
+14. Ansaripour, M., Chatterjee, K., Henzinger, T.A., Lechner, M., Zikelic, D.: Learning
+provably stabilizing neural controllers for discrete-time stochastic systems. In: ATVA
+(1). Lecture Notes in Computer Science, vol. 14215, pp. 357–379. Springer (2023)
+15. Avant, T., Morgansen, K.A.: Analytical bounds on the local Lipschitz constants
+of ReLU networks. IEEE Transactions on Neural Networks and Learning Systems
+(2023)
+16. Badings, T.S., Romao, L., Abate, A., Parker, D., Poonawala, H.A., Stoelinga, M.,
+Jansen, N.: Robust control for dynamical systems with non-gaussian noise via
+formal abstractions. J. Artif. Intell. Res. 76, 341–391 (2023)
+17. Baillon, J.B., Bruck, R.E., Reich, S.: On the asymptotic behavior of nonexpansive
+mappings and semigroups in Banach spaces. Houston J. Math. 4, 1–9 (1978)
+18. Berkenkamp, F., Turchetta, M., Schoellig, A.P., Krause, A.: Safe model-based
+reinforcement learning with stability guarantees. In: NIPS. pp. 908–918 (2017)
+19. Bertsekas, D.: Reinforcement learning and optimal control, vol. 1. Athena Scientific
+(2019)
+20. Bertsekas, D.P., Shreve, S.E.: Stochastic Optimal Control: The Discrete-time Case.
+Athena Scientific (1978)
+21. Bhowmick, A., D’Souza, M., Raghavan, G.S.: LipBaB: Computing exact Lipschitz
+constant of ReLU networks. In: ICANN (4). Lecture Notes in Computer Science,
+vol. 12894, pp. 151–162. Springer (2021)
+22. Biggio, B., Corona, I., Maiorca, D., Nelson, B., Srndic, N., Laskov, P., Giacinto, G.,
+Roli, F.: Evasion attacks against machine learning at test time. In: ECML/PKDD
+(3). Lecture Notes in Computer Science, vol. 8190, pp. 387–402. Springer (2013)
+23. Bradbury, J., Frostig, R., Hawkins, P., Johnson, M.J., Leary, C., Maclaurin, D.,
+Necula, G., Paszke, A., VanderPlas, J., Wanderman-Milne, S., Zhang, Q.: JAX:
+composable transformations of Python+NumPy programs (2018), http://github.
+com/google/jax
+24. Bradley, A.R., Manna, Z., Sipma, H.B.: Linear ranking with reachability. In: CAV.
+Lecture Notes in Computer Science, vol. 3576, pp. 491–504. Springer (2005)
+22 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+25. Brunke, L., Greeff, M., Hall, A.W., Yuan, Z., Zhou, S., Panerati, J., Schoellig, A.P.:
+Safe learning in robotics: From learning-based control to safe reinforcement learning.
+Annu. Rev. Control. Robotics Auton. Syst. 5, 411–444 (2022)
+26. Bungert, L., Raab, R., Roith, T., Schwinn, L., Tenbrinck, D.: CLIP: cheap Lipschitz
+training of neural networks. In: SSVM. Lecture Notes in Computer Science, vol.
+12679, pp. 307–319. Springer (2021)
+27. Busoniu, L., de Bruin, T., Tolic, D., Kober, J., Palunko, I.: Reinforcement learning
+for control: Performance, stability, and deep approximators. Annu. Rev. Control.
+46, 8–28 (2018)
+28. Chakarov, A., Sankaranarayanan, S.: Probabilistic program analysis with martin-
+gales. In: CAV. Lecture Notes in Computer Science, vol. 8044, pp. 511–526. Springer
+(2013)
+29. Chang, Y., Roohi, N., Gao, S.: Neural Lyapunov control. In: NeurIPS. pp. 3240–3249
+(2019)
+30. Chatterjee, K., Henzinger, T.A., Lechner, M., Zikelic, D.: A learner-verifier frame-
+work for neural network controllers and certificates of stochastic systems. In: TACAS
+(1). Lecture Notes in Computer Science, vol. 13993, pp. 3–25. Springer (2023)
+31. Chatterjee, K., Novotn´ y, P., Zikelic, D.: Stochastic invariants for probabilistic
+termination. In: POPL. pp. 145–160. ACM (2017)
+32. Choi, J.J., Casta˜ neda, F., Tomlin, C.J., Sreenath, K.: Reinforcement learning for
+safety-critical control under model uncertainty, using control Lyapunov functions
+and control barrier functions. In: Robotics: Science and Systems (2020)
+33. Clark, A.: Control barrier functions for stochastic systems. Autom. 130, 109688
+(2021)
+34. Clarke, E.M., Grumberg, O., Jha, S., Lu, Y., Veith, H.: Counterexample-guided
+abstraction refinement for symbolic model checking. J. ACM 50(5), 752–794 (2003)
+35. Combettes, P.L., Pesquet, J.C.: Lipschitz certificates for layered network structures
+driven by averaged activation operators. SIAM Journal on Mathematics of Data
+Science 2(2), 529–557 (2020)
+36. Dalrymple, D., Skalse, J., Bengio, Y., Russell, S., Tegmark, M., Seshia, S., Omo-
+hundro, S., Szegedy, C., Goldhaber, B., Ammann, N., Abate, A., Halpern, J.,
+Barrett, C.W., Zhao, D., Zhi-Xuan, T., Wing, J., Tenenbaum, J.B.: Towards guar-
+anteed safe AI: A framework for ensuring robust and reliable AI systems. CoRR
+abs/2405.06624 (2024)
+37. Dawson, C., Gao, S., Fan, C.: Safe control with learned certificates: A survey of
+neural Lyapunov, barrier, and contraction methods for robotics and control. IEEE
+Trans. Robotics 39(3), 1749–1767 (2023)
+38. De Queiroz, M.S., Dawson, D.M., Nagarkatti, S.P., Zhang, F.: Lyapunov-based
+control of mechanical systems. Springer Science & Business Media (2000)
+39. Dierks, H., Kupferschmid, S., Larsen, K.G.: Automatic abstraction refinement for
+timed automata. In: FORMATS. Lecture Notes in Computer Science, vol. 4763, pp.
+114–129. Springer (2007)
+40. Duan, Y., Chen, X., Houthooft, R., Schulman, J., Abbeel, P.: Benchmarking deep
+reinforcement learning for continuous control. In: ICML. JMLR Workshop and
+Conference Proceedings, vol. 48, pp. 1329–1338. JMLR.org (2016)
+41. Durrett, R.: Stochastic Calculus: A Practical Introduction. CRC Press, 1st edn.
+(1996)
+42. Eiras, F., Alfarra, M., Torr, P.H.S., Kumar, M.P., Dokania, P.K., Ghanem, B., Bibi,
+A.: ANCER: anisotropic certification via sample-wise volume maximization. Trans.
+Mach. Learn. Res. 2022 (2022)
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 23
+43. Fazlyab, M., Robey, A., Hassani, H., Morari, M., Pappas, G.J.: Efficient and
+accurate estimation of Lipschitz constants for deep neural networks. In: NeurIPS.
+pp. 11423–11434 (2019)
+44. Fioriti, L.M.F., Hermanns, H.: Probabilistic termination: Soundness, completeness,
+and compositionality. In: POPL. pp. 489–501. ACM (2015)
+45. Floyd, R.W.: Assigning Meanings to Programs, pp. 65–81 (1993)
+46. Garc´ ıa, J., Fern´ andez, F.: A comprehensive survey on safe reinforcement learning.
+J. Mach. Learn. Res. 16, 1437–1480 (2015)
+47. Gehr, T., Mirman, M., Drachsler-Cohen, D., Tsankov, P., Chaudhuri, S., Vechev,
+M.T.: AI2: safety and robustness certification of neural networks with abstract
+interpretation. In: IEEE Symposium on Security and Privacy. pp. 3–18. IEEE
+Computer Society (2018)
+48. G´ omez, F.L., Rolland, P., Cevher, V.: Lipschitz constant estimation of neural
+networks via sparse polynomial optimization. In: ICLR. OpenReview.net (2020)
+49. Gouk, H., Frank, E., Pfahringer, B., Cree, M.J.: Regularisation of neural networks
+by enforcing Lipschitz continuity. Mach. Learn. 110(2), 393–416 (2021)
+50. Gowal, S., Dvijotham, K., Stanforth, R., Bunel, R., Qin, C., Uesato, J., Arandjelovic,
+R., Mann, T.A., Kohli, P.: On the effectiveness of interval bound propagation for
+training verifiably robust models. CoRR abs/1810.12715 (2018)
+51. Gracia, I., Laurenti, L., Jr., M.M., Abate, A., Lahijanian, M.: Temporal logic control
+for nonlinear stochastic systems under unknown disturbances (2024)
+52. Huang, X., Kroening, D., Ruan, W., Sharp, J., Sun, Y., Thamo, E., Wu, M., Yi,
+X.: A survey of safety and trustworthiness of deep neural networks: Verification,
+testing, adversarial attack and defence, and interpretability. Comput. Sci. Rev. 37,
+100270 (2020)
+53. Huang, X., Kwiatkowska, M., Wang, S., Wu, M.: Safety verification of deep neural
+networks. In: CAV (1). Lecture Notes in Computer Science, vol. 10426, pp. 3–29.
+Springer (2017)
+54. Jackson, J., Laurenti, L., Frew, E.W., Lahijanian, M.: Strategy synthesis for partially-
+known switched stochastic systems. In: HSCC. pp. 6:1–6:11. ACM (2021)
+55. Jagtap, P., Soudjani, S., Zamani, M.: Formal synthesis of stochastic systems via
+control barrier certificates. IEEE Trans. Autom. Control. 66(7), 3097–3110 (2021)
+56. Jordan, M., Dimakis, A.G.: Exactly computing the local Lipschitz constant of ReLU
+networks. In: NeurIPS (2020)
+57. Katz, G., Barrett, C., Dill, D.L., Julian, K., Kochenderfer, M.J.: Reluplex: An
+efficient SMT solver for verifying deep neural networks. In: Computer Aided Verifi-
+cation. vol. 29, pp. 97–117. Springer (2017)
+58. Khalil, H.K., Grizzle, J.W.: Nonlinear systems, vol. 3. Prentice hall Upper Saddle
+River, NJ (2002)
+59. Kingma, D.P., Ba, J.: Adam: A method for stochastic optimization. In: ICLR
+(Poster) (2015)
+60. Kurakin, A., Goodfellow, I.J., Bengio, S.: Adversarial examples in the physical
+world. In: ICLR (Workshop). OpenReview.net (2017)
+61. Lahijanian, M., Andersson, S.B., Belta, C.: Formal verification and synthesis for
+discrete-time stochastic systems. IEEE Trans. Autom. Control. 60(8), 2031–2045
+(2015)
+62. Lechner, M., Zikelic, D., Chatterjee, K., Henzinger, T.A.: Stability verification
+in stochastic control systems via neural network supermartingales. In: AAAI. pp.
+7326–7336. AAAI Press (2022)
+24 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+63. Lillicrap, T.P., Hunt, J.J., Pritzel, A., Heess, N., Erez, T., Tassa, Y., Silver, D.,
+Wierstra, D.: Continuous control with deep reinforcement learning. In: ICLR (Poster)
+(2016)
+64. Lindemann, L., Dimarogonas, D.V.: Control barrier functions for signal temporal
+logic tasks. IEEE Control. Syst. Lett. 3(1), 96–101 (2019)
+65. Mathiesen, F.B., Calvert, S.C., Laurenti, L.: Safety certification for stochastic
+systems via neural barrier functions. IEEE Control. Syst. Lett. 7, 973–978 (2023)
+66. Mazouz, R., Mathiesen, F.B., Laurenti, L., Lahijanian, M.: Piecewise stochastic
+barrier functions. CoRR abs/2404.16986 (2024)
+67. Mazouz, R., Muvvala, K., Ratheesh, A., Laurenti, L., Lahijanian, M.: Safety
+guarantees for neural network dynamic systems via stochastic barrier functions. In:
+NeurIPS (2022)
+68. Nadali, A., Zhong, B., Trivedi, A., Zamani, M.: Transfer learning for control systems
+via neural simulation relations. CoRR abs/2412.01783 (2024)
+69. Neustroev, G., Giacobbe, M., Lukina, A.: Neural continuous-time supermartingale
+certificates (2024), https://arxiv.org/abs/2412.17432
+70. Pauli, P., Koch, A., Berberich, J., Kohler, P., Allg¨ ower, F.: Training robust neural
+networks using Lipschitz bounds. IEEE Control. Syst. Lett. 6, 121–126 (2022)
+71. Podelski, A., Rybalchenko, A.: A complete method for the synthesis of linear
+ranking functions. In: VMCAI. Lecture Notes in Computer Science, vol. 2937, pp.
+239–251. Springer (2004)
+72. Prajna, S., Jadbabaie, A., Pappas, G.J.: A framework for worst-case and stochastic
+safety verification using barrier certificates. IEEE Trans. Autom. Control. 52(8),
+1415–1428 (2007)
+73. Puterman, M.L.: Markov Decision Processes: Discrete Stochastic Dynamic Pro-
+gramming. Wiley Series in Probability and Statistics, Wiley (1994)
+74. Raffin, A., Hill, A., Gleave, A., Kanervisto, A., Ernestus, M., Dormann, N.: Stable-
+baselines3: Reliable reinforcement learning implementations. J. Mach. Learn. Res.
+22, 268:1–268:8 (2021)
+75. Recht, B.: A tour of reinforcement learning: The view from continuous control.
+Annu. Rev. Control. Robotics Auton. Syst. 2, 253–279 (2019)
+76. Richards, S.M., Berkenkamp, F., Krause, A.: The Lyapunov neural network: Adap-
+tive stability certification for safe learning of dynamical systems. In: CoRL. Pro-
+ceedings of Machine Learning Research, vol. 87, pp. 466–476. PMLR (2018)
+77. Santoyo, C., Dutreix, M., Coogan, S.: A barrier function approach to finite-time
+stochastic system verification and control. Autom. 125, 109439 (2021)
+78. Schulman, J., Wolski, F., Dhariwal, P., Radford, A., Klimov, O.: Proximal policy
+optimization algorithms. CoRR abs/1707.06347 (2017)
+79. Shi, Z., Jin, Q., Kolter, Z., Jana, S., Hsieh, C., Zhang, H.: Neural network verification
+with branch-and-bound for general nonlinearities. CoRR abs/2405.21063 (2024)
+80. Shi, Z., Wang, Y., Zhang, H., Kolter, J.Z., Hsieh, C.: Efficiently computing local
+Lipschitz constants of neural networks via bound propagation. In: NeurIPS (2022)
+81. Steinhardt, J., Tedrake, R.: Finite-time regional verification of stochastic nonlinear
+systems. In: Robotics: Science and Systems (2011)
+82. Summers, S., Lygeros, J.: Verification of discrete time stochastic hybrid systems: A
+stochastic reach-avoid decision problem. Autom. 46(12), 1951–1961 (2010)
+83. Szegedy, C., Zaremba, W., Sutskever, I., Bruna, J., Erhan, D., Goodfellow, I.J.,
+Fergus, R.: Intriguing properties of neural networks. In: ICLR (Poster) (2014)
+84. Takisaka, T., Oyabu, Y., Urabe, N., Hasuo, I.: Ranking and repulsing supermartin-
+gales for reachability in randomized programs. ACM Trans. Program. Lang. Syst.
+43(2), 5:1–5:46 (2021)
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 25
+85. Tiwari, A., Khanna, G.: Series of abstractions for hybrid automata. In: HSCC.
+Lecture Notes in Computer Science, vol. 2289, pp. 465–478. Springer (2002)
+86. Virmaux, A., Scaman, K.: Lipschitz regularity of deep neural networks: analysis
+and efficient estimation. In: NeurIPS. pp. 3839–3848 (2018)
+87. Wang, Z., Hu, B., Havens, A.J., Araujo, A., Zheng, Y., Chen, Y., Jha, S.: On the
+scalability and memory efficiency of semidefinite programs for lipschitz constant
+estimation of neural networks. In: ICLR (2024)
+88. Weng, T., Zhang, H., Chen, H., Song, Z., Hsieh, C., Daniel, L., Boning, D.S., Dhillon,
+I.S.: Towards fast computation of certified robustness for ReLU networks. In: ICML.
+Proceedings of Machine Learning Research, vol. 80, pp. 5273–5282. PMLR (2018)
+89. Williams, D.: Probability with Martingales. Cambridge mathematical textbooks,
+Cambridge University Press (1991)
+90. Wu, J., Clark, A., Kantaros, Y., Vorobeychik, Y.: Neural Lyapunov control for
+discrete-time systems. In: NeurIPS (2023)
+91. Zamani, M., Esfahani, P.M., Majumdar, R., Abate, A., Lygeros, J.: Symbolic control
+of stochastic systems via approximately bisimilar finite abstractions. IEEE Trans.
+Autom. Control. 59(12), 3135–3150 (2014)
+92. Zhang, H., Zhang, P., Hsieh, C.: Recurjac: An efficient recursive algorithm for
+bounding jacobian matrix of neural networks and its applications. In: AAAI. pp.
+5757–5764. AAAI Press (2019)
+93. Zhang, L., She, Z., Ratschan, S., Hermanns, H., Hahn, E.M.: Safety verification for
+probabilistic hybrid systems. Eur. J. Control 18(6), 572–587 (2012)
+94. Zhou, R., Quartz, T., Sterck, H.D., Liu, J.: Neural Lyapunov control of unknown
+nonlinear systems with stability guarantees. In: NeurIPS (2022)
+95. Zikelic, D., Lechner, M., Henzinger, T.A., Chatterjee, K.: Learning control policies
+for stochastic systems with reach-avoid guarantees. In: AAAI. pp. 11926–11935.
+AAAI Press (2023)
+96. Zikelic, D., Lechner, M., Verma, A., Chatterjee, K., Henzinger, T.A.: Compositional
+policy learning in stochastic control systems with formal guarantees. In: NeurIPS
+(2023)
+97. Z¨ uhlke, M.M., Kudenko, D.: Adversarial robustness of neural networks from the
+perspective of Lipschitz calculus: A survey. ACM Computing Surveys (2024)
+26 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+A Further Algorithmic Details
+A.1 Split Lipschitz Constant of Dynamics
+In this appendix, we describe an improvement over the formulaK = LV Lf(Lπ+1)
+by analyzing the Lipschitz constant of the dynamics function f : X × U × N → X
+more carefully. Note that for Lf, we are interested in changes in the inputs x ∈ X
+and u ∈ U , but take ω ∈ N fixed. Hence, the Lipschitz constant Lf satisfies
+∥f(x′, u′, ω) − f(x, u, ω)∥ ≤ Lf ∥(x′, u′) − (x, u)∥.
+for all (fixed) ω ∈ N and all (x, u), (x′, u′) ∈ X × U .
+We now compute two ‘split’ Lipschitz constants: one Lipschitz constant Lf,x
+corresponding to changes in the state x (but keeping the action fixed), and one
+Lipschitz constant Lf,u corresponding to changes in the control u (but keeping
+the state fixed). Formally, we have
+∥f(x′, u, ω) − f(x, u, ω)∥ ≤ Lf,x∥x′ − x∥
+for fixed u ∈ U and ω ∈ N , and all x, x′ ∈ X . Similarly, we have
+∥f(x, u′, ω) − f(x, u, ω)∥ ≤ Lf,u∥u′ − u∥
+for fixed x ∈ X and ω ∈ N , and all u, u′ ∈ U . For a given dynamics function f,
+we can compute (upper bounds for) Lf,x and Lf,u. Note that we always have
+Lf,x ≤ Lf, and Lf,u ≤ Lf.
+We now explain why we can replace Lf(Lπ + 1) by Lf,x + Lf,uLπ, as bound
+for the Lipschitz constant of the function x 7→ f(x, π(x), ω) for all fixed ω ∈ N .
+Fix ω ∈ N , and let x, x′ ∈ X be given. Then ∥π(x) − π(x′)∥ ≤ Lπ∥x − x′∥.
+Now we use the triangle inequality to separate the changes in x from those in
+u = π(x):
+∥f(x,π(x), ω) − f(x′, π(x′), ω)∥
+≤ ∥f(x, π(x), ω) − f(x′, π(x), ω)∥ + ∥f(x′, π(x), ω) − f(x′, π(x′), ω)∥
+≤ Lf,x∥x′ − x∥ + Lf,u∥π(x) − π(x′)∥
+≤ (Lf,x + Lf,uLπ)∥x′ − x∥,
+which shows that Lf,x + Lf,uLπ is an upper bound for the Lipschitz constant
+of the function x 7→ f(x, π(x), ω). Hence, LV (Lf,x + Lf,uLπ) is an upper bound
+for the Lipschitz constant of the function x 7→ V (f(x, π(x), ω)).
+Finally, note that the inequalities Lf,x ≤ Lf and Lf,u ≤ Lf imply that
+LV (Lf,x + Lf,uLπ) ≤ LV Lf(Lπ + 1), so replacing K = LV Lf(Lπ + 1) by
+K = LV (Lf,x + Lf,uLπ) is indeed an improvement.
+In practice, we have implemented this improvement in our method and all
+verifier variants for which we report results (including the baseline).
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 27
+A.2 Suggested Mesh Size
+Recall from Sect. 6 that refining the mesh size by a fixed factor C ∈ (0, 1) may
+be unnecessary to mitigate violations of the RASM conditions. In this section,
+we explain how we compute a suggested mesh for each of the points ˜x ∈ eX that
+violate the expected decrease condition. This suggested mesh is used as an upper
+bound on the factor by which we refine the discretization.
+Concretely, let ˜x ∈ eX be a soft violation (as defined in Sect. 6) and denote
+its current mesh size by τ˜x. Thus, ˜x is associated with the set cellτ˜x
+∞(˜x). For each
+such point, the suggested mesh λ˜x is computed as
+λ˜x = max
+
+0.8 · V (˜x) − E(˜x)
+K , VLB(˜x) − E(˜x)
+K
+
+, (6)
+where we write E(˜x) = log Eω∼µ [exp(V (f(˜x, π(˜x), ω)))]. Then, our local refine-
+ment scheme splits the set cellτ˜x
+∞(˜x) associated with the point ˜x into smaller cells
+with mesh size max(Cτ ˜x, λ˜x). Hence, we refine the mesh size by the maximum of
+the fixed factor C and the suggested mesh size λ˜x.
+Intuition for the suggested mesh size. We now explain the intuition behind
+Eq. (6). The requirement to check the cell containing ˜x from Eq. (4) is that
+E(˜x) < V LB(˜x) − τ˜xK.
+Hence, if we refine the mesh to λ˜x < VLB(˜x)−E(˜x)
+K (the second term in the
+maximum in Eq. (6)), then the condition will be guaranteed to hold for the new
+cell containing ˜x. However, refining the point ˜x introduces new points in the
+discretization in the set cellτ˜x
+∞(˜x), and for these points, this suggested mesh is not
+necessarily sufficient. This suggested mesh is somewhat conservative, however,
+since it does not take into account that also VLB(˜x) would become larger when
+decreasing the mesh. The first term in the maximum in Eq. (6) takes this into
+account by replacing VLB(˜x) by V (˜x). We now multiply by 0 .8 to take into
+account that the required mesh might be lower for nearby points.
+Initial and safety conditions. For the initial and safety conditions, computing
+a suggested mesh size is difficult due to the use of IBP for computing VLB(˜x)
+and VUB(˜x). In particular, the suggested mesh computation in Eq. (6) relies on
+Lipschitz constants, which are more conservative than the bounds we obtain
+using IBP. As a result, adapting Eq. (6) for the initial and safety conditions
+would lead to suggested meshes that are too conservative (i.e., too low). Thus,
+we simply use the fixed factor C for refining violations of the initial and safety
+conditions. Since in practice the most difficult violations are violations of the
+expected decrease condition, this is not a major limitation.
+B Proofs
+B.1 Preliminary Properties
+We first recall several standard properties of norms and Lipschitz constants.
+Throughout the appendix, superscripts on norms denote the index of the norm.
+28 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+Properties 1 and 2 are standard properties of Lipschitz constants.
+Property 1. If f : Rmk → Rmℓ , g: Rmj → Rmk are Lipschitz continuous with
+Lipschitz constants Lf and Lg with respect to given norms ∥ · ∥j, ∥ · ∥k, and ∥ · ∥ℓ
+defined on Rmj, Rmk, and Rmℓ respectively, then f ◦ g : Rmj → Rmℓ is Lipschitz
+continuous with Lipschitz constant Lf Lg.
+Property 2. If f, g : Rmk → Rmℓ are Lipschitz continuous with Lipschitz constants
+Lf and Lg with respect to given norms ∥ · ∥k, and ∥ · ∥ℓ defined on Rmk and Rmℓ
+respectively, and α, β ∈ R, then αf + βg : Rmk → Rmℓ is Lipschitz continuous
+with Lipschitz constant |α|Lf + |β|Lg.
+Property 3 states that the operator norm of a matrix A is a Lipschitz constant
+of a corresponding affine function x 7→ Ax + b, where b is some (bias) vector.
+Property 3. Let A ∈ Rmℓ×mk be a matrix and let b ∈ Rmℓ be a vector. Equip
+the input space with the norm ∥ · ∥k and the output space with the norm ∥ · ∥ℓ,
+and let the corresponding operator norm be given by
+∥A∥k,ℓ = sup
+n ∥Ax∥ℓ
+∥x∥k
+ x ∈ Rmk , x ̸= 0
+o
+.
+For these norms, the affine function Rmk → Rmℓ defined by x 7→ Ax + b is
+Lipschitz continuous with Lipschitz constant ∥A∥k,ℓ.
+Proof. Let x, x′ ∈ Rmk be given. If x = x′, then ∥(Ax + b) − (Ax′ + b)∥ℓ = 0 =
+∥A∥k,ℓ∥x − x′∥k trivially. Now assume that x ̸= x′, then x − x′ ̸= 0. Hence,
+∥(Ax + b) − (Ax′ + b)∥ℓ = ∥A(x − x′)∥ℓ ≤ ∥A∥k,ℓ∥x − x′∥k,
+by the definition of the operator norm. This shows that x 7→ Ax + b is Lipschitz
+continuous with Lipschitz constant ∥A∥k,ℓ.
+Property 4 shows that an activation function applying a scalar function
+componentwise inherits the Lipschitz constant of the scalar function in any
+weighted 1-norm.
+Property 4. Let R: R → R be a function with Lipschitz constant L, i.e. |R(x) −
+R(x′)| ≤ L|x − x′|. Then the vectorized function R′ : Rv → Rv applying R
+componentwise has Lipschitz constant L when the input and output space are
+both equipped with the same weighted 1-norm.
+Proof. Let ∥x∥W =Pv
+i=1 wi|xi| for weights wi > 0 be the norm on the input
+and output space. For any x, x′ ∈ Rv, it holds that
+∥R′(x) − R′(x′)∥W =
+vX
+i=1
+wi|(R′(x) − R′(x′))i| =
+vX
+i=1
+wi|R(xi) − R(x′
+i)|
+≤
+vX
+i=1
+wiL|xi − x′
+i| = L
+vX
+i=1
+wi|xi − x′
+i| = L∥x − x′∥W ,
+which shows that R′ is Lipschitz continuous with Lipschitz constant L.
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 29
+Finally, Property 5 shows how we can decompose 1-norms.
+Property 5. Equip Rv1+v2, Rv1 and Rv2 with a weighted 1-norm, such that the
+first v1 weights on Rv1+v2 coincide with the weights on Rv1 and the last v2
+weights on Rv1+v2 coincide with the weights on Rv2. Let x = (y, z) ∈ Rv1+v2
+with y ∈ Rv1 and z ∈ Rv2 be given. Then ∥x∥W ≤ ∥y∥W + ∥z∥W.
+Proof. The triangle inequality implies
+∥x∥W = ∥(y, 0) + (0, z)∥W ≤ ∥(y, 0)∥W + ∥(0, z)∥W = ∥y∥W + ∥z∥W ,
+where the last equality holds since from the definition of the weighted 1-norm it
+follows that 0 components do not contribute to the norm.
+B.2 Proof of Theorem 1
+We give a short proof of Theorem 1. Another proof is given in [95].
+Theorem 1. If there exists a RASM for the reach-avoid specification ⟨XT , XU , ρ⟩,
+then this specification is satisfied.
+Proof. Fix a policy π and an initial state x0 ∈ X 0. We consider the stochastic
+process (xt)t∈N0 which is defined recursively by xt+1 = f(xt, π(xt), ωt). Let Ft
+be the natural filtration corresponding to ( xt)t∈N0. Let
+σ = min{t ∈ N0 : xt ∈ X T ∨ V (xt) ≥ 1
+1−ρ }.
+Then σ is a stopping time, since {σ = t} ∈ F t for all t ∈ N0; intuitively, this
+means that whether the event occurs is determined by the values of xt′ for t′ ≤ t.
+The expected decrease condition implies that ( V (xmin{t,σ}))t∈N0 is a super-
+martingale with respect to the filtration ( Ft)t∈N0. Namely, if t < σ , then
+E[V (xmin{t+1,σ}) | F t] = E[V (xt+1) | F t] = E[V (f(xt, π(xt), ωt)) | xt]
+= Eωt∼µ[V (f(xt, π(xt), ωt))] ≤ V (xt) = V (xmin{t,σ}),
+while if t ≥ σ then E[V (xmin{t+1,σ}) | F t] = V (xσ) = V (xmin{t,σ}).
+We now show that σ < ∞ almost surely (i.e., with probability 1). For this we
+use that V decreases in expectation by ϵ each step until σ occurs, but remains
+nonnegative. This implies that
+0 ≤ E[V (xσ)] = E[V (x0) − ϵσ],
+so E[σ] ≤ E[V (x0)]
+ϵ . Hence, Markov’s inequality implies P[σ ≥ t] ≤ E[V (x0)]
+ϵt and
+taking the limit t → ∞ then shows that σ < ∞ almost surely.
+Since (V (xmin{t,σ}))t∈N0 is a supermartingale and σ < ∞ almost surely, the
+optional stopping theorem implies that E[V (xσ)] ≤ E[V (x0)]. Moreover, we
+have 1
+1−ρ P
+h
+V (xσ) ≥ 1
+1−ρ
+i
+≤ E[V (xσ)] by Markov’s inequality (using that V is
+nonnegative), and E[V (x0)] ≤ 1 by the initial condition. Together, this shows
+30 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+that P
+h
+V (xσ) ≥ 1
+1−ρ
+i
+≤ (1 − ρ)E[V (xσ)] ≤ (1 − ρ)E[V (x0)] ≤ 1 − ρ. Since
+xσ ∈ X T ∨ V (xσ) ≥ 1
+1−ρ holds, this implies P [xσ ∈ X T ] ≥ ρ. Since V (xt) < 1
+1−ρ
+for t < σ by the definition of σ, the safety condition guarantees that xt ̸∈ X U for
+t < σ . Hence, we conclude that
+Prπ
+x0(XT , XU) ≥ P [xσ ∈ X T ∧ (∀t < σ : xt ̸∈ X U)] ≥ ρ,
+as required to show that the reach-avoid specification ⟨XT , XU , ρ⟩ is satisfied.
+B.3 Proof of Lemma 1
+Lemma 1. Every discrete RASM is also a RASM.
+Proof. Let V : X → R≥0 be a discrete RASM. Then V is Lipschitz continuous
+and hence continuous. We proceed by showing that each of the three conditions
+in the definition of a discrete RASM (Def. 5) implies the corresponding condition
+in the definition of a RASM (Def. 3).
+(1) Initial condition: Since V is a discrete RASM, it holds that VUB(˜x) ≤ 1
+for all ˜x ∈ eX such that cellτ˜x
+∞(˜x) ∩ X0 ̸= ∅. Now let x ∈ X 0 be given. Since eX is
+a discretization of X , there exists a point ˜x ∈ eX such that x ∈ cellτ˜x
+∞(˜x). Then
+x ∈ cellτ˜x
+∞(˜x) ∩ X0, so cell τ˜x
+∞(˜x) ∩ X0 ̸= ∅ and hence
+V (x) ≤ Vmax(˜x) ≤ VUB(˜x) ≤ 1.
+Since x ∈ X 0 was arbitrary, we conclude that V (x) ≤ 1 for all x ∈ X 0. Hence, we
+conclude that the initial condition (1) from Def. 3 holds.
+(2) Safety condition: Since V is a discrete RASM, it holds that VLB(˜x) ≥ 1
+1−ρ
+for all ˜x ∈ eX such that cellτ˜x
+∞(˜x) ∩ XU ̸= ∅. Now let x ∈ X U be given. Since eX is
+a discretization of X , there exists a point ˜x ∈ eX such that x ∈ cellτ˜x
+∞(˜x). Then
+x ∈ cellτ˜x
+∞(˜x) ∩ XU, so cell τ˜x
+∞(˜x) ∩ XU ̸= ∅ and hence
+V (x) ≥ Vmin(˜x) ≥ VLB(˜x) ≥ 1
+1−ρ .
+Since x ∈ X U was arbitrary, we conclude that V (x) ≥ 1
+1−ρ for all x ∈ X U. Hence,
+we conclude that the safety condition (2) from Def. 3 holds.
+(3) Expected decrease condition: Since V is a discrete RASM, it holds that
+Eω∼µ [V (f(˜x, π(˜x), ω))] < V LB(˜x) − τ˜xK
+for all ˜x ∈ eX such that cellτ˜x
+∞(˜x) ∩ (X \ X T ) ̸= ∅ and VLB(˜x) < 1
+1−ρ. For each
+point ˜x ∈ eX in the discretization, define ϵ˜x by
+ϵ˜x = VLB(˜x) − τ˜xK − Eω∼µ [V (f(˜x, π(˜x), ω))] > 0.
+Since eX is finite, ϵ := min
+˜x∈ eX
+ϵ˜x > 0. Hence, there exists an ϵ > 0 such that
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 31
+Eω∼µ [V (f(˜x, π(˜x), ω))] ≤ VLB(˜x) − ϵ − τ˜xK
+for all ˜x ∈ eX such that cell τ˜x
+∞(˜x) ∩ (X \ X T ) ̸= ∅ and VLB(˜x) < 1
+1−ρ.
+Now let x ∈ X be a point such that x ∈ X \ X T and V (x) < 1
+1−ρ. Since
+eX is a discretization of X , there exists a point ˜x ∈ eX such that x ∈ cellτ˜x
+∞(˜x).
+Then x ∈ cellτ˜x
+∞(˜x) ∩ (X \ X T ), which implies cellτ˜x
+∞(˜x) ∩ (X \ X T ) ̸= ∅, and
+VLB(˜x) ≤ Vmin(˜x) ≤ V (x) < 1
+1−ρ. Hence, we have
+Eω∼µ [V (f(˜x, π(˜x), ω))] ≤ VLB(˜x) − ϵ − τ˜xK.
+Fix an ω. Since x ∈ cellτ˜x
+∞(˜x), we have ∥x − ˜x∥∞ ≤ τ /d, where d is the
+dimension of the state space X . It follows that ∥x − ˜x∥1 ≤ τ. Hence, the Lipschitz
+continuity of π implies ∥π(x) − π(˜x)∥1 ≤ τ˜xLπ, so
+∥(x, π(x), ω) − (˜x, π(˜x), ω)∥1 ≤ ∥x − ˜x∥1 + ∥π(x) − π(˜x)∥1 ≤ τ˜x(Lπ + 1),
+by Property 5. Since V and f have Lipschitz constants LV and Lf, this implies
+|V (f(x, π(x), ω)) − V (f(˜x, π(˜x), ω))| ≤ τ˜xLV Lf(Lπ + 1) = τ˜xK.
+Hence, we have V (f(x, π(x), ω)) ≤ V (f(˜x, π(˜x), ω)) + τ˜xK for each ω. Taking
+the expectation over ω ∼ µ yields
+Eω∼µ [V (f(x, π(x), ω))] ≤ Eω∼µ [V (f(˜x, π(˜x), ω))] + τ˜xK
+≤ VLB(˜x) − ϵ ≤ V (x) − ϵ.
+Since x ∈ X was an arbitrary point such that x ∈ X \ X T and V (x) < 1
+1−ρ, we
+conclude that there exists an ϵ > 0 such that Eω∼µ [V (f(x, π(x), ω))] ≤ V (x) − ϵ
+for all x ∈ X such that x ∈ X \ X T and V (x) < 1
+1−ρ. Hence, the Expected
+decrease condition (3) from Def. 3 holds.
+Hence, we conclude that V is a RASM, which completes the proof.
+B.4 Proof of Lemma 2
+Lemma 2. If V is a logRASM, then exp
+
+V
+
+is a RASM.
+Proof. Let V be a logRASM, and write eV = exp(V ). For the initial condition,
+note that V (x) ≤ 0 for all x ∈ X 0 implies eV (x) = exp
+
+V (x)
+
+≤ 1 for all x ∈ X 0.
+Similarly, for the safety condition, V (x) ≥ log
+ 1
+1−ρ
+
+for all x ∈ X U implies
+eV (x) = exp
+
+V (x)
+
+≥ 1
+1−ρ for all x ∈ X U.
+For the expected decrease condition, we first note that V is continuous and
+X is compact, so Weierstrass’ Extreme Value Theorem implies that V attains
+some global minimum v. Now let ϵ > 0 satisfy
+log Eω∼µ [exp(V (f(x, π(x), ω)))] ≤ V (x) − ϵ
+32 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+for all x ∈ X \ X T with V (x) ≤ log
+ 1
+1−ρ
+
+. Let ϵ′ = ev(1 − e−ϵ) > 0. Then
+Eω∼µ
+h
+eV (f(x, π(x), ω))
+i
+≤ exp
+
+V (x) − ϵ
+
+= eV (x)e−ϵ
+= eV (x) −eV (x)(1 − e−ϵ)
+≤ eV (x) − ev(1 − e−ϵ)
+= eV (x) − ϵ′
+for all x ∈ X \ X T with eV (x) ≤ 1
+1−ρ. Hence, the expected decrease condition is
+also satisfied. Finally, we note that eV = exp
+
+V
+
+is nonnegative and that eV is
+continuous since V and exp are continuous. We conclude that eV is a RASM.
+B.5 Proof of Theorem 2
+Theorem 2. If V is a discrete logRASM for a discretization eX , then exp
+
+V
+
+is a RASM.
+Proof. We follow the proof of Lemma 1, except that we need some novel ideas
+for the expected decrease condition. Let V : X → R be a discrete logRASM, and
+write eV = exp(V ). Then V is Lipschitz continuous and hence continuous, so eV
+is also continuous. Also, eV is nonnegative. We proceed by showing that each of
+the three conditions in the definition of a discrete logRASM (Def. 7) implies the
+corresponding condition in the definition of a RASM (Def. 3).
+(1) Initial condition: Since eV is a discrete logRASM, it holds that VUB(˜x) ≤ 0
+for all ˜x ∈ eX such that cellτ˜x
+∞(˜x) ∩ X0 ̸= ∅. Now let x ∈ X 0 be given. Since eX is
+a discretization of X , there exists a point ˜x ∈ eX such that x ∈ cellτ˜x
+∞(˜x). Then
+x ∈ cellτ˜x
+∞(˜x) ∩ X0, so cell τ˜x
+∞(˜x) ∩ X0 ̸= ∅ and hence
+eV (x) = exp(V (x)) ≤ exp(Vmax(˜x)) ≤ exp(VUB(˜x)) ≤ exp(0) = 1.
+Since x ∈ X 0 was arbitrary, we conclude that eV (x) ≤ 1 for all x ∈ X 0. Hence, we
+conclude that the initial condition (1) from Def. 3 holds.
+(2) Safety condition: Since V is a discrete logRASM, it holds that VLB(˜x) ≥
+log
+ 1
+1−ρ
+
+for all ˜x ∈ eX such that cellτ˜x
+∞(˜x) ∩ XU ̸= ∅. Now let x ∈ X U be given.
+Since eX is a discretization of X , there exists a point ˜x ∈ eX such that x ∈ cellτ˜x
+∞(˜x).
+Then x ∈ cellτ˜x
+∞(˜x) ∩ XU, so cell τ˜x
+∞(˜x) ∩ XU ̸= ∅ and hence
+eV (x) = exp(V (x)) ≥ exp(Vmin(˜x)) ≥ exp(VLB(˜x)) ≥ exp
+
+log
+ 1
+1−ρ
+
+= 1
+1−ρ .
+Since x ∈ X U was arbitrary, we conclude that eV (x) ≥ 1
+1−ρ for all x ∈ X U. Hence,
+we conclude that the safety condition (2) from Def. 3 holds.
+(3) Expected decrease condition: Since V is a discrete logRASM, it holds that
+log Eω∼µ
+h
+exp
+
+V (f(˜x, π(˜x), ω))
+i
+< V LB(˜x) − τ˜xK
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 33
+for all ˜x ∈ eX such that cellτ˜x
+∞(˜x) ∩ (X \ X T ) ̸= ∅ and VLB(˜x) < log
+ 1
+1−ρ
+
+. For
+each point ˜x ∈ eX in the discretization, define ϵ˜x by
+ϵ˜x = VLB(˜x) − τ˜xK − log Eω∼µ
+h
+exp
+
+V (f(˜x, π(˜x), ω))
+i
+> 0.
+Since eX is finite, ϵ′ := min
+˜x∈ eX
+ϵ˜x > 0. Hence, there exists an ϵ′ > 0 such that
+log Eω∼µ
+h
+exp
+
+V (f(˜x, π(˜x), ω))
+i
+≤ VLB(˜x) − ϵ − τ˜xK
+for all ˜x ∈ eX such that cell τ˜x
+∞(˜x) ∩ (X \ X T ) ̸= ∅ and VLB(˜x) < log
+ 1
+1−ρ
+
+.
+Now let x ∈ X be a point such that x ∈ X \ X T and eV (x) < 1
+1−ρ. Since
+eX is a discretization of X , there exists a point ˜x ∈ eX such that x ∈ cellτ˜x
+∞(˜x).
+Then x ∈ cellτ˜x
+∞(˜x) ∩ (X \ X T ), which implies cellτ˜x
+∞(˜x) ∩ (X \ X T ) ̸= ∅, and
+VLB(˜x) ≤ Vmin(˜x) ≤ V (x) = log(eV (x)) < log
+ 1
+1−ρ
+
+. Hence, we have
+log Eω∼µ
+h
+exp
+
+V (f(˜x, π(˜x), ω))
+i
+≤ VLB(˜x) − ϵ′ − τ˜xK.
+Fix an ω. Since x ∈ cellτ˜x
+∞(˜x), we have ∥x − ˜x∥∞ ≤ τ /d, where d is the dimension
+of the state space X . It follows that ∥x − ˜x∥1 ≤ τ. Hence, the Lipschitz continuity
+of π implies ∥π(x) − π(˜x)∥1 ≤ τ˜xLπ, so
+∥(x, π(x), ω) − (˜x, π(˜x), ω)∥1 ≤ ∥x − ˜x∥1 + ∥π(x) − π(˜x)∥1 ≤ τ˜x(Lπ + 1),
+by Property 5. Since V and f have Lipschitz constants LV and Lf, this implies
+|V (f(x, π(x), ω)) − V (f(˜x, π(˜x), ω))| ≤ τ˜xLV Lf(Lπ + 1) = τ˜xK.
+Hence, we have V (f(x, π(x), ω)) ≤ V (f(˜x, π(˜x), ω)) + τ˜xK for each ω.
+We now come to the main novel part of the proof. We have
+Eω∼µ
+h
+eV (f(x, π(x), ω))
+i
+= Eω∼µ
+h
+exp
+
+V (f(x, π(x), ω))
+i
+≤ Eω∼µ
+h
+exp
+
+V (f(˜x, π(˜x), ω)) + τ˜xK
+i
+= eτ˜xKEω∼µ
+h
+exp
+
+V (f(˜x, π(˜x), ω))
+i
+≤ eτ˜xK exp (VLB(˜x) − ϵ′ − τ˜xK)
+≤ eτ˜xKe−τ˜xKe−ϵ′
+exp (V (˜x)) = e−ϵ′
+eV (x).
+Note that V is continuous and X is compact, so Weierstrass’ Extreme Value
+Theorem implies that V attains some global minimum v. Let ϵ = ev(1 − e−ϵ′
+) > 0.
+Then this shows that
+Eω∼µ
+h
+eV (f(x, π(x), ω))
+i
+≤ eV (x) − ϵ.
+34 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+Since x ∈ X was an arbitrary point such that x ∈ X \ X T and eV (x) < 1
+1−ρ, we
+conclude that there exists an ϵ > 0 such that Eω∼µ
+h
+eV (f(x, π(x), ω))
+i
+≤ eV (x) − ϵ
+for all x ∈ X such that x ∈ X \ X T and eV (x) < 1
+1−ρ. Hence, the Expected
+decrease condition (3) from Def. 3 holds.
+Hence, we conclude that eV = exp(V ) is a RASM, which completes the proof.
+B.6 Proof of Lemma 3
+Lemma 3. Let K ′ = 1
+1−ρ K > 0. If VLB(˜x) < log
+ 1
+1−ρ
+
+, then
+exp(VLB(˜x)) − τ˜xK ′ < exp(VLB(˜x) − τ˜xK).
+Proof. We have
+exp(VLB(˜x) − τ˜xK) = exp(VLB(˜x)) exp(−τ˜xK)
+≥ exp(VLB(˜x))(1 − τ˜xK)
+= exp(VLB(˜x)) − exp(VLB(˜x))τ˜xK
+> exp(VLB(˜x)) − 1
+1−ρ τ˜xK
+= exp(VLB(˜x)) − τ˜xK ′,
+which is the required inequality.
+B.7 Proof of Lemma 4
+Lemma 4. Let M ∈ Rmℓ×mk be a matrix with entries Mij. Equip the space
+Rmk with the norm ∥x∥k
+W = Pmk
+i=1 wk
+i |xi|, and the space Rmℓ with the norm
+∥x∥ℓ
+W =Pmℓ
+i=1 wℓ
+i |xi|. Then the corresponding matrix norm satisfies
+∥M ∥k,ℓ
+W = max
+1≤j≤mk
+"
+1
+wk
+j
+mℓX
+i=1
+wℓ
+i |Mij|
+#
+.
+Proof. Note that we can write ∥x∥k
+W =Pmk
+i=1 wk
+i |xi| and ∥y∥ℓ
+W =Pmℓ
+i=1 wℓ
+i |yi|.
+Hence,
+∥Ax∥ℓ
+W =
+mℓX
+i=1
+wℓ
+i |(Ax)i| ≤
+mℓX
+i=1
+
+wℓ
+i
+mkX
+j=1
+|Aij||xj|
+
+
+=
+mkX
+j=1
+ 
+1
+wk
+j
+mℓX
+i=1
+wℓ
+i |Aij|
+!
+wk
+j |xj|
+≤
+ 
+max
+1≤j≤mk
+"
+1
+wk
+j
+mℓX
+i=1
+wℓ
+i |Aij|
+#! mkX
+j=1
+wk
+j |xj|
+=
+ 
+max
+1≤j≤mk
+"
+1
+wk
+j
+mℓX
+i=1
+wℓ
+i |Aij|
+#!
+∥x∥k
+W ,
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 35
+which shows that
+∥A∥k,ℓ
+W = sup
+n ∥Ax∥ℓ
+W
+∥x∥k
+W
+ x ∈ Rmk , x ̸= 0
+o
+≤ max
+1≤j≤mk
+"
+1
+wk
+j
+mℓX
+i=1
+wℓ
+i |Aij|
+#
+.
+Moreover, the inequality ∥Ax∥ℓ
+W ≤ max
+1≤j≤mk
+h
+1
+wk
+j
+Pmℓ
+i=1 wℓ
+i |Aij|
+i
+∥x∥k
+W holds
+with equality, if we choose a j∗ ∈ arg max
+1≤j≤mk
+h
+1
+wk
+j
+Pmℓ
+i=1 wℓ
+i |Aij|
+i
+and define x by
+xj∗ = 1 and xj = 0 for j ̸= j∗. This shows that the operator norm ∥A∥k,ℓ
+W is in
+fact equal to max
+1≤j≤mk
+h
+1
+wk
+j
+Pmℓ
+i=1 wℓ
+i |Aij|
+i
+.
+B.8 Proof of Lemma 5
+Lemma 5. Let W be a weight system. Then LA,W is a Lipschitz constant of T A,
+i.e. ∥T A(x) − T A(x′)∥n
+W ≤ LA,W ∥x − x′∥0
+W for all x, x′ ∈ Rm0. If additionally
+wn
+i = 1 for all 1 ≤ i ≤ mn, then LA,W is a Lipschitz constant of T A for the
+standard (unweighted) 1-norm, i.e. ∥T A(x) − T A(x′)∥ ≤ LA,W ∥x − x′∥ for all
+x, x′ ∈ Rm0.
+Proof. We first prove the inequality ∥T A(x) − T A(x′)∥n
+W ≤ LT,W ∥x − x′∥0
+W for
+all x, x′ ∈ Rm0 by induction on the number of layers ( n + 1), where n ≥ 1.
+For n = 1, we note that
+∥T (x) − T (x′)∥1
+W = ∥R1(A1x + b1) − R1(A1x′ + b1)∥1
+W
+≤ ∥(A1x + b1) − (A1x′ + b1)∥1
+W
+≤ ∥A1∥0,1
+W ∥x − x′∥0
+W = LT,W ∥x − x′∥0
+W ,
+using Properties 3 and 4, and the fact that R1 has Lipschitz constant 1.
+For the induction step, consider a network with ( n + 1) + 1 layers. Write
+T A(x0) = Rn+1(An+1xn + bn+1) = Rn+1(An+1T A
+≤n(x0) + bn+1)
+where T A
+≤n represents the operator corresponding to the first n + 1 layers of the
+network. Then
+∥T A(x) − T A(x′)∥n+1
+W
+= ∥Rn+1(An+1T A
+≤n(x) + bn+1) − Rn+1(An+1T A
+≤n(x′) + bn+1)∥n+1
+W
+≤ ∥(An+1T A
+≤n(x) + bn+1) − (An+1T A
+≤n(x′) + bn+1)∥n+1
+W
+≤ ∥An+1∥n,n+1
+W ∥T A
+≤n(x) − T A
+≤n(x′)∥n
+W
+≤ ∥An+1∥n,n+1
+W LT≤n,W ∥x − x′∥0
+W
+= ∥An+1∥n,n+1
+W
+nY
+ℓ=1
+∥Aℓ∥ℓ−1,ℓ
+W ∥x − x′∥0
+W
+=
+n+1Y
+ℓ=1
+∥Aℓ∥ℓ−1,ℓ
+W ∥x − x′∥0
+W = LT,W ∥x − x′∥0
+W ,
+36 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+which completes the induction.
+We turn to the second part of the lemma. Suppose thatwn
+i = 1 for 1 ≤ i ≤ mn.
+By definition of the weight system W, we have maxi w0
+i = 1, so w0
+i ≤ 1 for
+1 ≤ i ≤ m0. Hence, if ∥ · ∥ denotes the unweighted 1-norm, then ∥x∥ = ∥x∥n
+W for
+x ∈ Rmn and
+∥x∥ =
+m0X
+i=1
+|xi| ≥
+m0X
+i=1
+w0
+i |xi| = ∥x∥0
+W
+for x ∈ Rm0. Hence, we conclude that
+∥T (x) − T (x′)∥ = ∥T (x) − T (x′)∥n+1
+W ≤ LT,W ∥x − x′∥0
+W ≤ LT,W ∥x − x′∥,
+which completes the proof.
+B.9 Proof of Lemma 6
+Lemma 6. If W is optimal for output weights wn, then LA,W ≤ LA, fW for all
+weight systems fW with output weights wn.
+Proof. Let wn be given output weights and let W be optimal for output weights
+wn. Let fW be any weight system with output weights wn. Then we have
+LA,W w0
+j ≤ LA, fWew0
+j for all 1 ≤ j ≤ m0. By definition of a weight system,
+we have maxj ew0
+j = maxj w0
+j = 1. Take a j∗ such that w0
+j∗ = 1. Then ew0
+j∗ ≤ 1, so
+LA, fW ≥ LA, fWew0
+j∗ ≥ LA,W w0
+j∗ = LA,W ,
+which is the required inequality.
+B.10 Proof of Theorem 3
+Theorem 3 (Correctness of Algorithm 1). Let output weights wn be given.
+Then the weights wℓ
+j computed using Algorithm 1 are optimal for output weights wn.
+Proof. We first note that the weights that Algorithm 1 computes indeed satisfy
+maxj wℓ
+j = 1 for all 0 ≤ ℓ ≤ n − 1. Let j∗ ∈ arg max
+1≤j≤mℓ−1
+Pmℓ
+i=1 wℓ
+i |(Aℓ)ij|. Then
+Kℓ =
+mℓX
+i=1
+wℓ
+i |(Aℓ)ij∗ | ≥
+mℓX
+i=1
+wℓ
+i |(Aℓ)ij| ,
+so wℓ−1
+j = 1
+Kℓ
+Pmℓ
+i=1 wℓ
+i |(Aℓ)ij| ≤ 1, while wℓ−1
+j∗ = 1. Hence, maxj wℓ−1
+j = 1 for
+all 1 ≤ ℓ ≤ n, so max j wℓ
+j = 1 for all 0 ≤ ℓ ≤ n − 1.
+We now prove the optimality by induction on the number of layers ( n + 1),
+where n ≥ 1. For n = 1, the weight system W with corresponding Lipschitz
+bound K computed using Algorithm 1 satisfies Kw 0
+j =Pm0
+i=1 w1
+i |(A1)ij|. Now
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 37
+let fW be any weight system with the same output weights wn, and let eK be the
+corresponding Lipschitz bound. Then we have
+eKew0
+j = ∥A1∥0,1
+fW ew0
+j ≥
+ 
+1
+ew0
+j
+m0X
+i=1
+w1
+i |(A1)ij|
+!
+ew0
+j =
+m0X
+i=1
+w1
+i |(A1)ij| = Kw 0
+j
+by Lemma 4, showing the optimality of the weights w.
+For the induction step, assume that we have a network with ( n + 1) + 1 layers.
+Let W denote the weight system computed using Algorithm 1, and let K be the
+corresponding Lipschitz bound. Let K≥2 denote the Lipschitz bound computed
+after all but one iteration of the outer loop, i.e. K≥2 = Qn+1
+ℓ=2 ∥Aℓ∥ℓ−1,ℓ
+W . Let
+K1 be the Lipschitz factor in the last iteration of the loop. Then K = K1K≥2.
+Similarly, let fW be any other weight system with output weights wn. Let eK≥2
+denote the Lipschitz bound computed after all but one iteration of the outer loop,
+i.e. eK≥2 =Qn+1
+ℓ=2 ∥Aℓ∥ℓ−1,ℓ
+fW . Finally, let eK1 = ∥A1∥0,1
+fW be the Lipschitz factor in
+the last iteration of the loop. Then eK = eK ′
+1eK≥2.
+From Algorithm 1, we note that K1w0
+j =Pm0
+i=1 w1
+i |(A1)ij|, while Lemma 4
+implies that
+eK1ew0
+j = ∥A1∥0,1
+fW ew0
+j ≥
+ 
+1
+ew0
+j
+m0X
+i=1
+w1
+i |(A1)ij|
+!
+ew0
+j =
+m0X
+i=1
+ew1
+i |(A1)ij| .
+By the induction hypothesis, we have eK≥2ew1
+j ≥ K≥2w1
+j for all 1 ≤ j ≤ m1.
+Combining yields
+eKew0
+j = eK1eK≥2ew0
+j ≥
+m0X
+i=1
+eK≥2ew1
+i |(A1)ij| ≥
+m0X
+i=1
+K≥2w1
+i |(A1)ij|
+= K1K≥2w0
+j = Kw 0
+j ,
+which is the required inequality.
+This completes the induction and hence the proof.
+B.11 Proof of Theorem 4
+Theorem 4. Consider an (n+1)-layer neural network with 1
+2-averaged activation
+operators Rk. Let W be a corresponding weight system. Let
+Sn = {(k1, k2, . . . , kr) ∈ Nr
+0 | 0 ≤ r ≤ n − 1, 1 ≤ k1 < k 2 < · · · < k r ≤ n − 1}.
+Then the Lipschitz constant LT A of the neural network operator T A satisfies
+LT A ≤ 1
+2n−1
+X
+(k1,k2,...,kr)∈Sn
+"r+1Y
+ℓ=1
+∥Akℓ . . . Akℓ−1+1∥kℓ−1,kℓ
+W
+#
+,
+where we set k0 = 0 and kr+1 = n.
+38 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+Proof. We prove the statement by induction on the number of layers ( n + 1),
+where n ≥ 1. For the proof, we first omit the outermost activation operator.
+Note that the Lipschitz constant of each activation operator Rk is 1 since it is a
+1
+2-averaged activation operator and using Property 4. In particular, Property 1
+shows that a Lipschitz constant computed for the network without the outermost
+activation operator is also valid for the network where we do have the outermost
+activation operator.
+For n = 1, we have T A(x0) = A1x0 + b1. Then LT A ≤ ∥A1∥0,n
+W by Property 3.
+For the induction step, assume that we have a network with ( n + 1) + 1 layers.
+Write
+T A(x0) = An+1xn + bn+1 = An+1Rn(T A
+≤n(x0)) + bn+1
+where T A
+≤n represents the operator corresponding to the first n + 1 layers of the
+network. Since Rn is 1
+2-averaged, we can write Rn(x) = 1
+2 x + 1
+2 Q(x), where Q
+has Lipschitz constant 1. Hence,
+T A(x0) = 1
+2 (An+1(Anxn−1 + bn) + bn+1) + 1
+2
+
+An+1Q(T A
+≤n(x0)) + bn+1
+
+= 1
+2 ((An+1An)xn−1 + (An+1bn + bn+1)) + 1
+2
+
+An+1Q(T A
+≤n(x0)) + bn+1
+
+= 1
+2 T A′
+≤n(x0) + 1
+2
+
+An+1Q(T A
+≤n(x0)) + bn+1
+
+,
+where T A′
+≤n represents the operator corresponding to a network with n + 1 layers,
+where the first n layers are as in the given network, but where the last layer is
+as the output layer of the given network, the matrix is An+1An and the bias is
+An+1bn + bn+1. Define A′
+k = Ak for k < n and A′
+n = An+1An. The induction
+hypothesis informs us that
+LT A′
+≤n
+≤ 1
+2n−1
+X
+(k1,k2,...,kr)∈Sn
+"r+1Y
+ℓ=1
+∥A′
+kℓ . . . A′
+kℓ−1+1∥kℓ−1,kℓ
+W
+#
+,
+where in this case kr+1 = n. If we instead write kr+1 = n + 1, we can also write
+LT A′
+≤n
+≤ 1
+2n−1
+X
+(k1,k2,...,kr)∈Sn
+"r+1Y
+ℓ=1
+∥Akℓ . . . Akℓ−1+1∥kℓ−1,kℓ
+W
+#
+.
+The induction hypothesis also informs us that
+LT A
+≤n
+≤ 1
+2n−1
+X
+(k1,k2,...,kr)∈Sn
+"r+1Y
+ℓ=1
+∥Akℓ . . . Akℓ−1+1∥kℓ−1,kℓ
+W
+#
+.
+where kr+1 = n. Write T A′
+(x) = An+1Q(T A
+≤n(x)) + bn+1. Since Q has Lipschitz
+constant 1 and x 7→ An+1x + bn+1 has Lipschitz constant ∥An+1∥n,n+1
+W by Prop-
+erty 3, we can bound the Lipschitz constant of T A′
+as LT A ′ ≤ ∥An+1∥n,n+1
+W LT A
+≤n
+by Property 1. We can also write this as
+LT A ′ ≤ 1
+2n−1
+X
+(k1,k2,...,kr)∈Sn+1:kr=n
+"r+1Y
+ℓ=1
+∥Akℓ . . . Akℓ−1+1∥kℓ−1,kℓ
+W
+#
+.
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 39
+where kr+1 = n + 1.
+Note that
+Sn+1 = {(k1, k2, . . . , kr) | 0 ≤ r ≤ n, 1 ≤ k1 < k 2 < · · · < k r ≤ n}
+= Sn ∪ {(k1, k2, . . . , kr) | 0 ≤ r ≤ n, 1 ≤ k1 < k 2 < · · · < k r ≤ n, kr = n}
+= Sn ∪ {(k1, k2, . . . , kr) ∈ Sn+1 | kr = n}.
+Using Property 2, we find that
+LT A ≤ 1
+2 LT A′
+≤n
++ 1
+2 LT A ′
+≤ 1
+2(n+1)−1
+ X
+(k1,k2,...,kr)∈Sn
+"r+1Y
+ℓ=1
+∥Akℓ . . . Akℓ−1+1∥kℓ−1,kℓ
+W
+#
++
+X
+(k1,k2,...,kr)∈Sn+1:kr=n
+"r+1Y
+ℓ=1
+∥Akℓ . . . Akℓ−1+1∥kℓ−1,kℓ
+W
+#!
+= 1
+2(n+1)−1
+X
+(k1,k2,...,kr)∈Sn+1
+"r+1Y
+ℓ=1
+∥Akℓ . . . Akℓ−1+1∥kℓ−1,kℓ
+W
+#
+,
+which completes the induction step and hence the proof.
+C Experiments
+In this appendix, we provide the complete dynamics and reach-avoid specifications
+for the benchmarks used for the empirical evaluation in Sect. 7. In addition, we
+provide an overview of the hyperparameters used.
+For each of the models, we also provide the loss functions used by the RL
+algorithms to train the initial policy. To further test the robustness of our method
+against different input policies, we used different loss functions for PPO and the
+other RL algorithms from Stable-Baselines3.
+C.1 Model specifications
+For simplicity of the implementation, we use a triangular noise distribution for
+each model. The triangular distribution on [ −1, 1] is the continuous distribution
+with probability density function
+Triangular(x) =
+(
+1 − |x| if |x| < 1
+0 otherwise .
+Linear System. In Linear System ( linear-sys), we have X = [−1.5, 1.5]2 ⊆
+R2 and U = [−1, 1] ⊆ R and N = [−1, 1]2 ⊆ R2. The system dynamics function
+f : X × U × N → X is given by
+f(x, u, ω) = Ax + Bu + W ω,
+40 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+−1.5
+−1.0
+−0.5
+0.0
+0.5
+1.0
+1.5
+x1
+−1.5
+−1.0
+−0.5
+0.0
+0.5
+1.0
+1.5
+x2
+XU
+XU
+LinearSystem
+X0X0 XT
+−1.5
+−1.0
+−0.5
+0.0
+0.5
+1.0
+1.5
+x1
+−1.5
+−1.0
+−0.5
+0.0
+0.5
+1.0
+1.5
+x2
+XU
+LinearSystem (hard)
+XT
+X0 XU X0
+−0.6
+−0.4
+−0.2
+0.0
+0.2
+0.4
+0.6
+x1
+−0.6
+−0.4
+−0.2
+0.0
+0.2
+0.4
+0.6
+x2
+XU
+XU
+Pendulum
+X0
+XT
+−1.00
+−0.75
+−0.50
+−0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+x1
+−1.00
+−0.75
+−0.50
+−0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+x2 XT
+XU
+XU
+X0 X0
+CollisionAvoid
+Fig. 6: Reach-avoid specifications for the 2D benchmarks used for the experiments.
+where A =
+1 0.045
+0 0 .9
+
+and B =
+0.45
+0.5
+
+and W =
+0.01 0
+0 0 .005
+
+. The noise ω has
+two components which are independent and have the Triangular distribution.
+The initial states are X0 = ([−0.25, −0.2] ∪ [0.2, 0.25]) × [−0.1, 0.1], the target
+states are XT = [ −0.2, 0.2]2, and the unsafe states are XU = ([ −1.5, −1.4] ×
+[−1.5, 0]) ∪ ([1.4, 1.5] × [0, 1.5]). The resulting reach-avoid task is shown in Fig. 6.
+The Lipschitz constants w.r.t. x and u are Lf,x = 1 and Lf,u = 0.95.
+For all our main experiments, we use the loss function∥x∥2 −1 =
+p
+x2
+1 + x2
+2 −1
+to train input policies, which is a sensible loss function since the goal states are
+around the origin and the unsafe states are the farthest away from the origin.
+When training input policies with the Stable-Baselines3 algorithms, we instead
+assign a loss of 5 when entering the unsafe region and a loss of −5 when entering
+the goal region, and use the loss function ∥x∥2 − 1 =
+p
+x2
+1 + x2
+2 − 1 otherwise.
+Pendulum. In Pendulum ( pendulum), we have X = [ −0.7, 0.7]2 ⊆ R2 and
+U = [ −1, 1] ⊆ R2 and N = [ −1, 1]2 ⊆ R2. The system dynamics function
+f : X × U × N → X is given by
+f(x, u, ω) =
+x1 + 0.01ω1
+0
+
++
+δ
+1
+
+clip
+
+(1 − b)x2 + δ
+ −1.5G sin(x1 + π)
+2l + 6
+ml2 u
+
++ 0.02ω2, −5, 5
+
+,
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 41
+where δ = 0.05, G = 10, m = 0.15, l = 0.5 and b = 0.1. The clip function is
+defined as clip(x, a, b) = min(max(x, a), b). The noise ω has two components
+ω1, ω2 which are independent and have the Triangular distribution.
+The initial states are X0 = [−0.3, 0.3]2, the target states are XT = [−0.2, 0.2]2,
+and the unsafe states are XU = ([−0.7, −0.6] × [−0.7, 0]) ∪ ([0.6, 0.7] × [0, 0.7]).
+The resulting reach-avoid task is shown in Fig. 6.
+The Lipschitz constants w.r.t. x and u are Lf,x = 1.7875 and Lf,u = 8.4.
+For all our main experiments, we use the loss functionx2
+1+0.1x2
+2 to train input
+policies. When training input policies with the Stable-Baselines3 algorithms,
+we instead assign a loss of 5 when entering the unsafe region and a loss of −5
+when entering the goal region, and use the loss function x2
+1 + 0.1x2
+2 otherwise.
+Collision Avoidance. In Collision Avoidance ( collision-avoid), we have
+X = [ −1, 1]2 ⊆ R2, U = [ −1, 1]2 ⊆ R2 and N = [ −1, 1]2 ⊆ R2. The system
+dynamics f : X × U × N → X is given by
+f(x, u, ω) = x + 0.2
+
+d2
+
+d1u + (1 − d1)
+
+0
+1
+
++ (1 − d2)
+
+0
+−1
+
++ 0.05ω,
+where d1 = min
+10
+3
+
+
+
+
+x −
+0
+1
+
+
+
+
+
+2
+, 1
+
+and d2 = min
+10
+3
+
+
+
+
+x −
+ 0
+−1
+
+
+
+
+
+2
+, 1
+
+.
+The noise ω has two components ω1, ω2 which are independent and have the
+Triangular distribution.
+The initial states are X0 = ([−1, −0.9] ∪ [0.9, 1]) × [−0.6, 0.6], the target states
+are XT = [−0.2, 0.2]2, and the unsafe states are XU = [−0.3, 0.3] ∪ ([−1, −0.7] ×
+[0.7, 1]). The resulting reach-avoid task is shown in Fig. 6.
+The Lipschitz constants w.r.t. x and u are Lf,x = 3 and Lf,u = 0.2.
+We use the same loss functions for training input policies as for Linear System.
+Linear System (hard layout). The hard layout of Linear System (linear-sys)
+has the same dynamics as the default version defined in App. C.1, but we modify
+the reach-avoid specification. Specifically, we use the reach-avoid specification with
+X0 = ([−1.4, −1.3] ∪ [1.3, 1.4]) × [−0.1, 0.1] and XU = ([−0.9, −0.7] ∪ [0.7, 0.9]) ×
+[−0.2, 0.2]. The resulting reach-avoid task is shown in Fig. 6.
+Triple Integrator. In Triple Integrator (triple-integrator), we have a 3D
+state space X = [−1, 1]3 ⊆ R3 and U = [−1, 1] ⊆ R and N = [−1, 1]3 ⊆ R3. The
+system dynamics function f : X × U × N → X is given by
+f(x, u, ω) = Ax + Bu + W ω,
+where A =
+
+
+1 0.045 0
+0 1 0 .045
+0 0 0 .9
+
+ and B =
+
+
+0.35
+0.45
+0.5
+
+ and W =
+
+
+0.01 0 0
+0 0 .01 0
+0 0 0 .005
+
+.
+The noise ω has three components which are independent and have the
+Triangular distribution.
+The initial states are X0 = ([ −0.25, −0.2]2 ∪ [0.2, 0.25]2) × [−0.1, 0.1], the
+target states are XT = [−0.2, 0.2]3, and the unsafe states are XU = ([−1, −0.9]2 ×
+42 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+−1.00
+−0.75
+−0.50
+−0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+x1
+−1.00
+−0.75
+−0.50
+−0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+x2 XT
+XU
+XU
+X0
+X0
+TripleIntegrator
+−1.00
+−0.75
+−0.50
+−0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+x1
+−1.00
+−0.75
+−0.50
+−0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+x2
+XT
+XU
+XU
+XU
+XU
+X0
+PlanarRobot
+−0.4
+−0.2
+0.0
+0.2
+0.4
+x1
+−0.4
+−0.2
+0.0
+0.2
+0.4
+x2
+XT
+XU
+XU
+XU
+X0
+Drone4D
+Fig. 7: Reach-avoid specifications for the 3D and 4D benchmarks used.
+[−1, 0]) ∪ ([0.9, 1]2 × [0, 1]). We show the 2D slice x2 = 0 of the reach-avoid
+specification in Fig. 7.
+The Lipschitz constants w.r.t. x and u are is Lf,x = 1.045 and Lf,u = 1.3.
+For training input policies, we use the loss function ∥x∥2
+2 −1 = x2
+1 +x2
+2 +x2
+3 −1.
+Planar Robot. In Planar Robot ( planar-robot), we have a 3D state space
+X = [−1, 1]3 ⊆ R3 and U = [−1, 1]2 ⊆ R2 and N = [−1, 1]2 ⊆ R2. The system
+dynamics function f : X × U × N → X is given by
+f(x, u, ω) = x + δ
+
+
+(x2 + 2δu1) cos(πu2)
+(x2 + 2δu1) sin(πu2)
+2u1
+
+ + 0.01
+
+
+ω1
+ω2
+0
+
+ ,
+where δ = 0.2. The noise ω has two components which are independent and have
+the Triangular distribution.
+The initial states are X0 = [0.4, 0.6] × [−0.8, −0.6] × [−0.1, 0.1], the target
+states are XT = [−1, −0.6] × [0.6, 1] × [−1, 1], and the unsafe states are
+XU = ([−1, −0.8] × [−1, 0] × [−1, 1])
+∪ ([−0.1, 1] × [0.8, 1] × [−1, 1])
+∪ ([0.8, 1] × [0, 0.8] × [−1, 1])
+∪ ([−0.4, 0] × [−0.4, 0.1] × [−1, 1]).
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 43
+We show the 2D slice x2 = 0 of the reach-avoid specification in Fig. 7.
+The Lipschitz constants w.r.t. x and u are is Lf,x = 1.4 and Lf,u = 0.4π.
+For training input policies, we use the loss function
+10
+p
+(x1 + 0.8)2 + (x2 − 0.8)2 − 10R.
+where R = 1 if the goal is reached, and R = 0 otherwise. This loss function
+measures the distance to the center of the target set (in the first two dimensions).
+Drone4D. In Drone4D (drone4D), we have a 4D state space X = [−0.5, 0.5]4 ⊆
+R4 and U = [−0.5, 0.5]2 ⊆ R2 and N = [−1, 1]2 ⊆ R2. The system dynamics
+function f : X × U × N → X is given by
+f(x, u, ω) = x + δ
+
+
+x2 + 1
+2 δu1
+−0.02x3
+2 + u1
+x4 + 1
+2 δu2
+−0.01x3
+4 + u2 − 0.1 sin(πx1)
+
+ + 0.01
+
+
+0
+ω1
+0
+ω2
+
+ ,
+where δ = 0.5. The noise ω has two components which are independent and have
+the Triangular distribution.
+The initial states are X0 = [ −0.45, −0.35] × [−0.1, 0.1] × [−0.45, −0.35] ×
+[0.25, 0.35], the target states are XT = [0.3, 0.5]×[−0.5, 0.5]×[0.3, 0.5]×[−0.5, 0.5],
+and the unsafe states are
+XU = [0.2, 0.5] × [−0.5, 0.5] × [−0.5, 0.3] × [−0.5, 0.5]
+∪ [0, 0.2] × [−0.5, 0.5] × [−0.5, 0.1] × [−0.5, 0.5]
+∪ [−0.5, 0] × [−0.5, 0.5] × [0.4, 0.3] × [−0.5, 0.5].
+We show the 2D slice x2 = x4 = 0 of the reach-avoid specification in Fig. 7.
+The Lipschitz constants w.r.t. x and u are is Lf,x = 1.5 and Lf,u = 0.5.
+For training input policies, we use the loss function
+p
+(x1 + 0.4)2 + (x3 + 0.4)2 − 10R.
+where R = 1 if the goal is reached, R = −1 if an unsafe state is entered, and 0
+otherwise. This loss function measures the distance to the center of the target
+set (in the two dimensions corresponding to the drone position).
+C.2 Hyperparameters
+In this appendix, we give an overview of the hyperparameters of our algorithm.
+Table 3 reports the hyperparameters. We now discuss the meaning of these
+parameters, the reason why we have chosen them, and the extent to which we
+have done hyperparameter tuning.
+Hyperparameters for all benchmarks. We first discuss the hyperparameters
+common for all benchmarks, as mentioned in Table 3. These parameters are at
+44 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+least used in all 2D benchmarks; for the more challenging benchmarks there are
+some exceptions mentioned later.
+Samples and buffers. Recall from Sect. 6 that the points used in the loss function
+of the learner are divided into randomly sampled points and counterexamples.
+For efficiency reasons, our implementation keeps track of a buffer for both types
+of points and samples from these buffers when needed. We use a buffer of size
+90 000 for the random points and a buffer of size 30 000 for the counterexamples.
+The number of epochs is the number of full passes made over these buffers in a
+single learner iteration. Within each epoch, the data is divided into batches of
+4 096 points, and the counterexample fraction (we use 0 .25) gives the fraction
+of counterexamples in each batch. 12 After each verifier iteration, a part of the
+counterexamples in the counterexample buffer is replaced by new counterexam-
+ples. The counterexample refresh fraction (we use 0 .5) gives the fraction of the
+counterexample buffer that is replaced with new counterexamples. We did not
+tune these hyperparameters for our experiments.
+Optimizer and learning rate. We take the optimizer (we use Adam [59]), learning
+rates for V (5 · 10−4) and π (5 · 10−5) from [95] and have not performed any
+tuning on them. We also take the number of samples N used in the expected
+decrease terms in the loss function of the learner (see Sect. 6) from [95].
+PPO training. The number of steps for training input policies with PPO is
+105, except for planar-robot and drone4D, which use 10 7 steps and 10 6 steps,
+respectively. We observed that this number of steps leads to adequate convergence
+of the policies. We did not perform sophisticated tuning of the number of training
+steps.
+Verifier grid and maximum refinement. We use τ˜x = 0.01 as initial mesh for each
+point ˜x in the discretization used in the verifier. We set the maximum refinement
+factor C to 10, which seems to yield a good balance between (a) not having to
+refine too often and (b) not wasting too much time when hard violations are
+found after the first local refinement.
+Loss function. Besides the loss mesh τ, there are three hyperparameters in the
+loss function: the expected decrease multiplier α, and the two terms ε, ε′. We
+set α to 10 (except one experiment for the robustness to input policies), since
+we observed that in general this gives a good balance between the three loss
+terms. The terms ε, ε′ ensure that the conditions amply hold for the points in
+the discretization if the loss is 0. We set a higher value ( ε = 0.1) for the initial
+and unsafe conditions as these conditions are easier to satisfy and setting ε to a
+higher value makes the algorithm more robust. On the other hand, the expected
+decrease condition is harder to satisfy, so we set a lower value ε′ = 0.01. When
+12 Strictly speaking, each batch consists of 4096 points, 75% of which is sampled from
+the buffer with random points, and 25% of which is sampled from the counterexample
+buffer. Thus, it may happen that the same points are sampled more than once in an
+epoch, but given the size of the batches, this behavior only has a limited effect.
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 45
+number of random points 90 000
+number of counterexamples 30 000
+epochs 25
+batch size 4096
+counterexample fraction 0.25
+counterexample refresh fraction 0.5
+optimizer Adam [59]
+learning rate V 5 · 10−4
+learning rate π 5 · 10−5
+N loss learner 16
+pretraining steps (PPO) 105
+init. mesh verification grid 0.01 (for 2D), 0 .04 (for 3D), 0 .06 (for 4D)
+max refine factor C 10 (for 2D), 4 (for 3D), 2 (for 4D)
+loss function: α 10
+loss function: ε 0.1
+loss function: ε′ 0.01
+goal Lπ pretrain 10
+Table 3: Hyperparameters common for all benchmarks, or only dependent on the
+dimension of the state space.
+setting this value too high, the loss function might introduce a larger margin on
+points that are no longer violations in favor of fixing violations.
+In addition, [95] also use losses penalizing the Lipschitz constant of the policy
+and the RASM candidate, and an auxiliary loss term that attempts to ensure
+that the global minimum of the candidate RASM is in the target set. We do not
+use these additional terms. The aim of the Lipschitz loss is to reduce the Lipschitz
+constant of (mainly) the certificate in fewer learner-verifier iterations. However,
+our method already substantially reduces the Lipschitz constant, so this additional
+loss has no substantial effect in combination with our method. In addition, the
+Lipschitz loss needs the desired Lipschitz constant as a hyperparameter, and
+setting it too small can actually hamper convergence. For the auxiliary loss, we
+observed that for high probability bounds this loss even worsens performance.
+Lipschitz constant pretraining. The loss function used in PPO pretraining includes
+an extra term that gives a loss if the Lipschitz constant of the policy is larger
+than a prespecified value. We set this value to 10. For all learner-verifiers, we use
+the product upper bound from [83] to compute the Lipschitz bound, to ensure
+that all learner-verifiers use the same initial policy.
+Benchmark-specific hyperparameters. We now discuss the benchmark-
+specific hyperparameters, which can be divided into two categories.
+Loss mesh. The main benchmark-specific parameter is the loss mesh. Recall from
+Sect. 6 that this loss mesh is contained in the loss function of the learner and is
+different from the mesh used by the verifier. Intuitively, when the loss function is
+trained to zero for a particular loss mesh τ, then a discretization of this same
+46 Thom Badings, Wietze Koops, Sebastian Junges, and Nils Jansen
+mesh τ in the verifier should suffice to successfully verify the certificate V . In
+practice, the loss function is not trained to zero exactly, so we expect that the
+loss mesh should be higher than the (worst-case) mesh needed by the verifier.
+We now explain the tradeoff for choosing a good loss mesh. A high loss mesh
+makes it harder to train, but easier to verify the certificate. Hence, we expect
+the learner-verifier to use more iterations, but the final verification to be fast.
+On the other hand, a lower loss mesh might lead to 0 loss fast, but lead to longer
+verification times since lower meshes are needed in the refinement.
+This tradeoff makes it difficult to select a good mesh. Therefore, we start
+with some initial loss mesh τinit and decrease it by a factor 0.8 each iteration. In
+this way, it will become easier to learn a correct certificate as the learner-verifier
+iterations progress, at the cost of expecting higher verification times. For most 2D
+benchmarks we set τinit = 0.001, but for collision-avoid we set τinit = 0.01.
+Noise partition. Finally, we take the number of noise partition cells of 12 2 = 144
+used for computing upper bounds on expectations from [95]. Forcollision-avoid,
+which has relatively more noise, we instead use 24 2 = 576 cells.
+Hyperparameters for > 2D benchmarks. For the 3D and 4D benchmarks
+(triple-integrator, planar-robot, and drone4D), we have selected a number
+of hyperparameters differently. For triple-integrator, we increase the number
+of noise partition cells to 6 3 = 216. We set the initial loss mesh τinit to 0.005 for
+the 3D benchmarks and to 0.01 for drone4D, and refine with a factor 0.9 rather
+than a factor 0.8.
+C.3 Loss function RASMs
+When the learner is learning a (discrete) RASM rather than a (discrete) logRASM,
+the learner uses a different loss function where each term instead models a
+differentiable version of a RASM condition:
+L0(V ) = max
+x∈P0
+{max{V (x) − 1 + ε, 0}} ,
+LU(V ) = (1 − ρ) max
+x∈PU
+n
+max
+ 1
+1−ρ − V (x) + ε, 0
+	o
+,
+LE(π, V ) = 1
+|PE|
+X
+x∈PE
+max
+ 1
+N
+X
+ωi∼d
+V (f(x, π(x), ωi))
+
+−V (x)+τ K′+ε′, 0
+
+.
+We use the same hyperparameters in this loss function.
+D Comparison against LipBaB
+We compare our method for computing Lipschitz constants to the anytime
+algorithm LipBaB [21], a competitive algorithm for computing global Lipschitz
+constants. We use the final networks returned upon termination of the learner-
+verifier framework (using our method). We then compute the Lipschitz constant
+for the policy network and the certificate network using our method and LipBaB.
+Policy Verification in Stoch. Dyn. Sys. Using Logarithmic Neural Certificates 47
+Table 4: Lipschitz constants and timings for LipBaB in comparison to our method,
+averaged over 10 seeds (except any seeds that failed), for the policy network ( π)
+and the certificate network ( V ). For LipBaB, we used a timeout of 600 seconds.
+model ρ network LOurs LLipBaB,1 LLipBaB lower tbetter texact
+linear-sys 0.8 π 2.56 4.18 1.28 0.71 162.9 >600
+0.999999 π 2.56 4.18 1.29 0.71 162.6 >600
+linear-sys
+(hard layout)
+0.8 π 2.52 4.15 1.27 1.05 159.2 >600
+0.999999 π 1.67 2.53 0.88 0.88 101.1 435
+pendulum 0.8 π 0.70 0.92 0.43 0.39 75.1 >600
+0.999999 π 0.47 0.54 0.31 0.31 35.1 >588
+collision-avoid 0.8 π 6.06 8.70 3.66 1.89 106.0 >600
+0.999999 π 5.25 6.92 3.62 3.17 90.4 >600
+linear-sys 0.8 V 39.14 94.86 56.91 5.63 >600.0 >600
+0.999999 V 83.74 176.8 106.15 15.23 >600.0 >600
+linear-sys
+(hard layout)
+0.8 V 93.78 148.05 85.08 21.39 471.2 >600
+0.999999 V 545.23 776.56 420.58 91.70 281.3 >600
+pendulum 0.8 V 10.95 13.90 9.26 6.91 240.0 >600
+0.999999 V 120.06 126.73 81.23 66.78 15.9 >600
+collision-avoid 0.8 V 8.05 9.89 7.43 6.19 367.0 >600
+0.999999 V 65.4 76.61 52.63 40.65 139.2 >600
+Table 4 shows results for Lipschitz computations using LipBaB, in comparison
+to our method (using both weighted norms (Sect. 5.1) and averaged activation
+operators (Sect. 5.2)). The first two columns specify the network we trained on
+by specifying the benchmark, probability bound ρ, and whether we consider the
+policy network ( π) or the certificate network ( V ). The next column gives the
+Lipschitz constant computed using our method. For each setting, our method takes
+0.2 seconds for the first call (due to JIT compilation by JAX) and 0.0002 seconds
+(0.2 milliseconds) for subsequent calls (if the code is already JIT-compiled). The
+column titled ‘ LLipBaB,1’ gives the first result computed by LipBaB. Computing
+this first result takes 0.5 seconds for 3 layer networks. The next two columns
+(titled ‘LLipBaB’ and ‘lower’) provide the final Lipschitz constant computed by
+LipBaB upon termination or after 600 seconds (whichever occurs first). The
+column titled ‘ tbetter’ gives the first time after which LipBaB has computed a
+better Lipschitz constant than our method. The final column, titled ‘ texact’, gives
+the time until LipBaB returns the exact Lipschitz constant (counting a timeout
+as 600 seconds, and an inequality sign indicating that in at least one run the
+exact Lipschitz constant was not found in 600 seconds).
